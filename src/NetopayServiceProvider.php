@@ -2,9 +2,9 @@
 
 namespace MarianDumitru\Netopay;
 
+use MarianDumitru\Netopay\Commands\NetopayCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
-use MarianDumitru\Netopay\Commands\NetopayCommand;
 
 class NetopayServiceProvider extends PackageServiceProvider
 {
