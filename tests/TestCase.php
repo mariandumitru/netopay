@@ -3,8 +3,8 @@
 namespace MarianDumitru\Netopay\Tests;
 
 use Illuminate\Database\Eloquent\Factories\Factory;
-use Orchestra\Testbench\TestCase as Orchestra;
 use MarianDumitru\Netopay\NetopayServiceProvider;
+use Orchestra\Testbench\TestCase as Orchestra;
 
 class TestCase extends Orchestra
 {
