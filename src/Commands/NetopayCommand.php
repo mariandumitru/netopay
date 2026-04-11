@@ -1,12 +1,12 @@
 <?php
 
-namespace VendorName\Skeleton\Commands;
+namespace MarianDumitru\Netopay\Commands;
 
 use Illuminate\Console\Command;
 
-class SkeletonCommand extends Command
+class NetopayCommand extends Command
 {
-    public $signature = 'skeleton';
+    public $signature = 'netopay';
 
     public $description = 'My command';
 
