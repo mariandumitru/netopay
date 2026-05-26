@@ -21,22 +21,16 @@ use Throwable;
 
 class NetopiaWebhookController extends Controller
 {
-    public function __construct(
-        private readonly NetopiaClientInterface $client,
-    )
-    {
-    }
-
-    public function ipn(Request $request): Response
+    public function ipn(NetopiaClientInterface $netopiaClient, Request $request): Response
     {
         $body    = $request->all();
         $headers = $request->headers->all();
 
         try {
-            $parsed    = $this->client->handleIpn(new IpnPayloadDto($body, $headers));
-            $confirmed = $this->client->retrieveStatus($parsed->providerPaymentId, $parsed->orderId);
+            $ipnStatus    = $netopiaClient->handleIpn(new IpnPayloadDto($body, $headers));
+            $confirmedStatus = $netopiaClient->retrieveStatus($ipnStatus->providerPaymentId, $ipnStatus->orderId);
 
-            $this->firePaymentEvent($confirmed);
+            $this->dispatchPaymentEvent($confirmedStatus);
         } catch (Throwable $e) {
             Log::error('Netopia IPN processing failed', [
                 'error'   => $e->getMessage(),
@@ -59,7 +53,7 @@ class NetopiaWebhookController extends Controller
         return redirect($redirect);
     }
 
-    private function firePaymentEvent(PaymentStatusDto $status): void
+    private function dispatchPaymentEvent(PaymentStatusDto $status): void
     {
         match ($status->state) {
             PaymentStatus::Paid, PaymentStatus::Confirmed => NetopiaPaymentApproved::dispatch($status),
