@@ -6,10 +6,10 @@ namespace MarianDumitru\Netopay\Enums;
 
 enum CardType: string
 {
-    case Visa             = 'visa';
-    case MasterCard       = 'mastercard';
-    case Amex             = 'amex';
-    case NetopiaTestCard  = 'netopiatestcard';
+    case Visa = 'visa';
+    case MasterCard = 'mastercard';
+    case Amex = 'amex';
+    case NetopiaTestCard = 'netopiatestcard';
 
     public static function getByFirstDigit(string $firstDigit): ?string
     {

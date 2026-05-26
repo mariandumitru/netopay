@@ -48,17 +48,45 @@ NETOPIA_POS_SIGNATURE_SANDBOX=your-sandbox-pos-signature
 NETOPIA_API_KEY_LIVE=your-live-api-key
 NETOPIA_POS_SIGNATURE_LIVE=your-live-pos-signature
 
-# Where Netopia sends the IPN callback (must be publicly accessible)
-NETOPIA_NOTIFY_URL=https://yourdomain.com/netopia/ipn
-
-# Where Netopia redirects the user after payment
-NETOPIA_REDIRECT_URL=https://yourdomain.com/netopia/return
+# Optional — if unset, the package auto-resolves these to its own routes
+# (named `netopia.ipn` and `netopia.return`). Set them explicitly only if
+# you've disabled the package routes or you want to override the URLs.
+# NETOPIA_NOTIFY_URL=https://yourdomain.com/netopia/ipn
+# NETOPIA_REDIRECT_URL=https://yourdomain.com/netopia/return
 
 # Where your app redirects the user after processing the return
 NETOPIA_AFTER_PAYMENT_REDIRECT=/dashboard
+
+# Optional — payment defaults
+# NETOPIA_CURRENCY=RON
+# NETOPIA_LANGUAGE=ro
+# NETOPIA_EMAIL_TEMPLATE=confirm
 ```
 
 Set `NETOPIA_SANDBOX=false` in production. The package automatically switches API keys and endpoints based on this value.
+
+### Full environment variable reference
+
+| Variable | Default | Description |
+|---|---|---|
+| `NETOPIA_SANDBOX` | `true` | Switches all credentials and endpoints between sandbox and live. |
+| `NETOPIA_API_KEY_SANDBOX` | — | Sandbox API key. |
+| `NETOPIA_POS_SIGNATURE_SANDBOX` | falls back to `NETOPIA_SALES_POINT_KEY` | Sandbox POS signature. |
+| `NETOPIA_API_KEY_LIVE` | — | Live API key. |
+| `NETOPIA_POS_SIGNATURE_LIVE` | falls back to `NETOPIA_SALES_POINT_KEY` | Live POS signature. |
+| `NETOPIA_SALES_POINT_KEY` | — | Shared fallback used by *both* `NETOPIA_POS_SIGNATURE_SANDBOX` and `NETOPIA_POS_SIGNATURE_LIVE` when those are unset. Useful when migrating from older integrations, but be aware it applies the same value to both environments. |
+| `NETOPIA_NOTIFY_URL` | auto → `route('netopia.ipn')` | URL Netopia POSTs the IPN to. Optional when package routes are enabled. |
+| `NETOPIA_REDIRECT_URL` | auto → `route('netopia.return')` | URL Netopia redirects the user to after payment. Optional when package routes are enabled. |
+| `NETOPIA_AFTER_PAYMENT_REDIRECT` | `/` | Where the package's return controller redirects the user after firing `NetopiaReturnReceived`. |
+| `NETOPIA_CURRENCY` | `RON` | Fallback currency when Netopia's response omits one. |
+| `NETOPIA_LANGUAGE` | `ro` | Language of the hosted payment page Netopia shows the customer (`ro`, `en`, …). |
+| `NETOPIA_EMAIL_TEMPLATE` | `confirm` | Email template identifier sent to Netopia on payment start. |
+| `NETOPIA_API_URL_SANDBOX` | sandbox `/payment/card/start` URL | Override the sandbox start endpoint (rarely needed). |
+| `NETOPIA_STATUS_URL_SANDBOX` | sandbox `/operation/status` URL | Override the sandbox status endpoint. |
+| `NETOPIA_VERIFY_AUTH_URL_SANDBOX` | sandbox `/payment/card/verify-auth` URL | Override the sandbox 3DS verify endpoint. |
+| `NETOPIA_API_URL_LIVE` | live `/payment/card/start` URL | Override the live start endpoint. |
+| `NETOPIA_STATUS_URL_LIVE` | live `/operation/status` URL | Override the live status endpoint. |
+| `NETOPIA_VERIFY_AUTH_URL_LIVE` | live `/payment/card/verify-auth` URL | Override the live 3DS verify endpoint. |
 
 ### Routes
 
@@ -92,6 +120,8 @@ You can disable the package routes entirely and register your own:
 ],
 ```
 
+> **Heads up:** when package routes are disabled, the auto-resolution of `NETOPIA_NOTIFY_URL` / `NETOPIA_REDIRECT_URL` relies on the named routes `netopia.ipn` and `netopia.return`. Either preserve those route names on your own routes, or set both env vars explicitly — otherwise `Netopay::start()` throws `RouteNotFoundException`.
+
 ---
 
 ## Usage
@@ -101,11 +131,11 @@ You can disable the package routes entirely and register your own:
 Build an `OrderData` DTO from your application's data and call `Netopay::start()`. This returns a `StartPaymentResponseDto` containing the Netopia-hosted page URL to redirect the user to.
 
 ```php
-use MarianDumitru\Netopay\Dto\BillingData;
-use MarianDumitru\Netopay\Dto\OrderData;
+use MarianDumitru\Netopay\Dto\BillingDto;
+use MarianDumitru\Netopay\Dto\OrderDto;
 use MarianDumitru\Netopay\Facades\Netopay;
 
-$billing = new BillingData(
+$billing = new BillingDto(
     email:      $user->email,
     phone:      $billingProfile->phone,
     firstName:  $user->first_name,
@@ -117,7 +147,7 @@ $billing = new BillingData(
     details:    $billingProfile->full_address,
 );
 
-$orderData = new OrderData(
+$orderData = new OrderDto(
     orderId:     $payment->uuid,   // your unique order identifier
     amount:      149.99,
     currency:    'RON',
@@ -127,31 +157,54 @@ $orderData = new OrderData(
 
 $response = Netopay::start($orderData);
 
+// Persist what you'll need later (ntpID, and the 3DS authenticationToken if present)
+// so your return listener can look the payment up and verify 3DS.
+$payment->update([
+    'provider_payment_id' => $response->providerPaymentId,
+    'payload'             => [
+        'start' => [
+            'customerAction' => $response->customerAction, // contains authenticationToken when 3DS is required
+        ],
+    ],
+]);
+
 // Redirect the user to Netopia's hosted payment page
 return redirect($response->paymentUrl);
 ```
 
+> The `payload` column above is just a JSON column on your `payments` table — name it whatever fits your schema. The point is to keep `$response->customerAction` somewhere your `NetopiaReturnReceived` listener can read it, since 3DS verification needs the `authenticationToken`.
+
 ### 2. Handling payment outcomes
 
-The package fires Laravel events from its webhook controller. Register listeners in your `AppServiceProvider` or `EventServiceProvider`:
+The package fires Laravel events from its webhook controller. Register listeners in your `App\Providers\AppServiceProvider::boot()` method (Laravel 11+ no longer ships an `EventServiceProvider`):
 
 ```php
+// app/Providers/AppServiceProvider.php
+use Illuminate\Support\Facades\Event;
+use MarianDumitru\Netopay\Events\NetopiaIpnProcessingFailed;
 use MarianDumitru\Netopay\Events\NetopiaPaymentApproved;
 use MarianDumitru\Netopay\Events\NetopiaPaymentFailed;
 use MarianDumitru\Netopay\Events\NetopiaPaymentPending;
 use MarianDumitru\Netopay\Events\NetopiaReturnReceived;
 
-Event::listen(NetopiaPaymentApproved::class, HandlePaymentApproved::class);
-Event::listen(NetopiaPaymentFailed::class, HandlePaymentFailed::class);
-Event::listen(NetopiaPaymentPending::class, HandlePaymentPending::class);
-Event::listen(NetopiaReturnReceived::class, HandleNetopiaReturn::class);
+public function boot(): void
+{
+    Event::listen(NetopiaPaymentApproved::class, HandlePaymentApproved::class);
+    Event::listen(NetopiaPaymentFailed::class, HandlePaymentFailed::class);
+    Event::listen(NetopiaPaymentPending::class, HandlePaymentPending::class);
+    Event::listen(NetopiaReturnReceived::class, HandleNetopiaReturn::class);
+    Event::listen(NetopiaIpnProcessingFailed::class, ReportIpnFailure::class);
+}
 ```
 
 #### NetopiaPaymentApproved
 
 Fired by the IPN controller when Netopia confirms a `Paid` or `Confirmed` status. This is where you fulfil the order.
 
+> **Double-fulfilment guard.** The IPN webhook and the user-facing return redirect can both arrive within a few seconds of each other and may both run your fulfilment logic. Wrap the lookup in a transaction with `lockForUpdate()` and check the status before acting, so only one of the two paths fulfils.
+
 ```php
+use Illuminate\Support\Facades\DB;
 use MarianDumitru\Netopay\Events\NetopiaPaymentApproved;
 
 class HandlePaymentApproved
@@ -160,26 +213,53 @@ class HandlePaymentApproved
     {
         $status = $event->status; // PaymentStatusDto
 
-        $payment = Payment::where('uuid', $status->orderId)->first();
+        DB::transaction(function () use ($status) {
+            $payment = Payment::where('uuid', $status->orderId)
+                ->lockForUpdate()
+                ->first();
 
-        $payment->update([
-            'status'              => 'paid',
-            'provider_payment_id' => $status->providerPaymentId,
-            'auth_code'           => $status->authCode,
-            'rrn'                 => $status->rrn,
-            'paid_at'             => now(),
+            if (! $payment || $payment->status === 'paid') {
+                return; // already fulfilled by the other path
+            }
+
+            $payment->update([
+                'status'              => 'paid',
+                'provider_payment_id' => $status->providerPaymentId,
+                'auth_code'           => $status->authCode,
+                'rrn'                 => $status->rrn,
+                'paid_at'             => now(),
+            ]);
+
+            if ($status->paymentToken) {
+                PaymentToken::updateOrCreate(
+                    ['user_id' => $payment->user_id],
+                    ['token'   => $status->paymentToken],
+                );
+            }
+
+            SubscriptionService::fulfil($payment);
+        });
+    }
+}
+```
+
+#### NetopiaIpnProcessingFailed
+
+Fired when the IPN controller cannot parse or confirm an inbound IPN (network error from Netopia, malformed payload, etc.). The controller still returns HTTP 204 to Netopia — this event is your hook to alert ops, retry via a queue, or push a breadcrumb to Sentry.
+
+```php
+use MarianDumitru\Netopay\Events\NetopiaIpnProcessingFailed;
+
+class ReportIpnFailure
+{
+    public function handle(NetopiaIpnProcessingFailed $event): void
+    {
+        report($event->exception); // send to Sentry / your reporter
+
+        Log::warning('Netopia IPN failed', [
+            'order_id' => $event->payload['order']['orderID'] ?? null,
+            'ntp_id'   => $event->payload['payment']['ntpID'] ?? null,
         ]);
-
-        // Save the card token for future recurring payments
-        if ($status->paymentToken) {
-            PaymentToken::updateOrCreate(
-                ['user_id' => $payment->user_id],
-                ['token' => $status->paymentToken],
-            );
-        }
-
-        // Fulfil the order
-        SubscriptionService::fulfil($payment);
     }
 }
 ```
@@ -187,6 +267,8 @@ class HandlePaymentApproved
 #### NetopiaReturnReceived
 
 Fired when the user is redirected back to your application after completing (or abandoning) payment. Use this to look up the payment status and update your UI. For hosted-page flows, call `Netopay::retrieveStatus()`. For 3DS flows, call `Netopay::verifyAuth()` first if an auth token is present.
+
+`$event->formData` is the raw POST/query payload Netopia sent on return (everything except `orderId`) as an `array<string, mixed>`. For 3DS flows, pass it straight through to `Netopay::verifyAuth()`.
 
 ```php
 use MarianDumitru\Netopay\Events\NetopiaReturnReceived;
@@ -196,13 +278,18 @@ class HandleNetopiaReturn
 {
     public function handle(NetopiaReturnReceived $event): void
     {
-        $payment = Payment::where('uuid', $event->orderId)->first();
-
-        if (!$payment) {
+        if ($event->orderId === '') {
+            // The package already logs a warning. Decide here whether to alert or silently drop.
             return;
         }
 
-        // Check if a 3DS auth token was stored during the start call
+        $payment = Payment::where('uuid', $event->orderId)->first();
+
+        if (! $payment) {
+            return;
+        }
+
+        // Set during the start call — see "Initiating a payment" above
         $authToken = data_get($payment->payload, 'start.customerAction.authenticationToken');
 
         if ($authToken) {
@@ -221,13 +308,12 @@ class HandleNetopiaReturn
             );
         }
 
-        // Update your payment record with the result
         $payment->update(['status' => $result->state->value]);
     }
 }
 ```
 
-> **Note:** The IPN webhook (`NetopiaPaymentApproved`) and the return redirect (`NetopiaReturnReceived`) may arrive concurrently. Guard against double-fulfilment by checking your payment status before acting.
+> **Note:** The IPN webhook (`NetopiaPaymentApproved`) and the return redirect (`NetopiaReturnReceived`) may arrive concurrently. See the double-fulfilment guard pattern in the `NetopiaPaymentApproved` listener above — apply the same `DB::transaction` + `lockForUpdate` approach in any code path that mutates payment state.
 
 ### 3. Recurring payments with a saved card token
 
@@ -261,8 +347,11 @@ echo $status->paymentToken;
 | `NetopiaPaymentApproved` | `$status` | `PaymentStatusDto` | Payment is `Paid` (3) or `Confirmed` (5) |
 | `NetopiaPaymentPending` | `$status` | `PaymentStatusDto` | Payment is awaiting 3DS (status 15) |
 | `NetopiaPaymentFailed` | `$status` | `PaymentStatusDto` | Payment failed or was declined |
-| `NetopiaReturnReceived` | `$orderId` | `string` | Your order identifier from the return URL |
-| | `$formData` | `array` | Form data posted back by Netopia |
+| `NetopiaIpnProcessingFailed` | `$exception` | `Throwable` | Exception thrown while handling the IPN |
+| | `$payload` | `array` | Raw IPN body received from Netopia |
+| | `$headers` | `array` | Raw IPN headers |
+| `NetopiaReturnReceived` | `$orderId` | `string` | Your order identifier from the return URL — **empty string if Netopia did not send `orderId`**, in which case the package also logs a warning |
+| | `$formData` | `array<string, mixed>` | POST/query data Netopia sent (everything except `orderId`). Pass straight to `Netopay::verifyAuth()` for 3DS flows |
 | | `$headers` | `array` | Request headers |
 
 ### `PaymentStatusDto` properties
@@ -303,6 +392,50 @@ Netopay::verifyAuth(string $orderId, string $authToken, string $ntpId, array $fo
 // Parse a raw IPN body without an API call (used internally)
 Netopay::handleIpn(array $body, array $headers = []): PaymentStatusDto
 ```
+
+---
+
+## Troubleshooting
+
+### See the raw requests and responses
+
+`NetopiaClient` logs every Netopia API request and response at the `debug` level (`Log::debug`). To see them, set:
+
+```env
+LOG_LEVEL=debug
+```
+
+You'll then see entries like `Netopia start payment request`, `Netopia start payment response`, `Netopia IPN received`, and `Netopia retrieve status response` in your log channel. Failures are logged at `error` — search for `Netopia IPN processing failed`.
+
+### Missing `orderId` on the return route
+
+If your `NetopiaReturnReceived` listener gets called with an empty `$event->orderId`, the package emits:
+
+```
+[warning] Netopia return received with no orderId
+```
+
+…with the query string, input, and headers attached. This usually means Netopia is not appending `orderId` to your `NETOPIA_REDIRECT_URL` — double-check the URL you configured on the Netopia merchant dashboard.
+
+### Verify your install end-to-end
+
+A quick sandbox smoke test:
+
+1. **Enable debug logging** — `LOG_LEVEL=debug` in `.env`, then `php artisan config:clear`.
+2. **Register a one-shot listener** in `routes/web.php` or a tinker session, just to see events fire:
+   ```php
+   Event::listen(\MarianDumitru\Netopay\Events\NetopiaPaymentApproved::class,
+       fn ($e) => logger()->info('approved', $e->status->toArray()));
+   ```
+3. **Initiate a payment** with a sandbox test card (Netopia provides these in their dashboard) via `Netopay::start($orderData)`, redirect, complete the form.
+4. **Inspect** the `storage/logs/laravel.log` file — you should see the `start payment` request/response, then the IPN payload, then your "approved" log line.
+5. **Re-fetch status manually** via `php artisan tinker`:
+   ```php
+   \MarianDumitru\Netopay\Facades\Netopay::retrieveStatus('<ntpID>', '<orderId>');
+   ```
+   using the IDs from step 4 to confirm round-trip works.
+
+If any step is missing, the log usually points at which one.
 
 ---
 

@@ -9,16 +9,16 @@ use MarianDumitru\Netopay\Enums\PaymentStatus;
 
 it('parses a paid retrieve-status response', function () {
     $data = [
-        'error'   => ['code' => '00', 'message' => 'Approved'],
-        'order'   => ['orderID' => 'order-uuid-123', 'currency' => 'EUR'],
+        'error' => ['code' => '00', 'message' => 'Approved'],
+        'order' => ['orderID' => 'order-uuid-123', 'currency' => 'EUR'],
         'payment' => [
-            'ntpID'    => '2739571',
-            'status'   => 3,
-            'amount'   => 22.94,
+            'ntpID' => '2739571',
+            'status' => 3,
+            'amount' => 22.94,
             'currency' => 'RON',
-            'rrn'      => 'RRN0292',
+            'rrn' => 'RRN0292',
         ],
-        'status'  => PaymentStatus::Paid,
+        'status' => PaymentStatus::Paid,
     ];
 
     $dto = PaymentStatusDto::fromNetopiaStatus($data);
@@ -35,16 +35,16 @@ it('parses a paid retrieve-status response', function () {
 
 it('reads payment token from retrieve-status response', function () {
     $data = [
-        'error'   => ['code' => '00', 'message' => 'Approved'],
-        'order'   => ['orderID' => 'order-abc'],
+        'error' => ['code' => '00', 'message' => 'Approved'],
+        'order' => ['orderID' => 'order-abc'],
         'payment' => [
-            'ntpID'    => '111',
-            'status'   => 3,
-            'amount'   => 10.0,
+            'ntpID' => '111',
+            'status' => 3,
+            'amount' => 10.0,
             'currency' => 'RON',
-            'token'    => 'saved-card-token==',
+            'token' => 'saved-card-token==',
         ],
-        'status'  => PaymentStatus::Paid,
+        'status' => PaymentStatus::Paid,
     ];
 
     $dto = PaymentStatusDto::fromNetopiaStatus($data);
@@ -56,21 +56,21 @@ it('reads payment token from retrieve-status response', function () {
 
 it('parses a verify-auth response', function () {
     $data = [
-        'error'   => ['code' => '00', 'message' => 'Approved'],
-        'order'   => ['orderID' => 'order-3ds'],
+        'error' => ['code' => '00', 'message' => 'Approved'],
+        'order' => ['orderID' => 'order-3ds'],
         'payment' => [
-            'ntpID'    => '2739571',
-            'status'   => 3,
-            'amount'   => 22.94,
+            'ntpID' => '2739571',
+            'status' => 3,
+            'amount' => 22.94,
             'currency' => 'RON',
-            'token'    => 'MTEw----=',
-            'data'     => [
+            'token' => 'MTEw----=',
+            'data' => [
                 'AuthCode' => 'QKlB',
-                'RRN'      => '8ZaCzKSE5Qpc',
-                'BIN'      => '990000',
+                'RRN' => '8ZaCzKSE5Qpc',
+                'BIN' => '990000',
             ],
         ],
-        'status'  => PaymentStatus::Paid,
+        'status' => PaymentStatus::Paid,
     ];
 
     $dto = PaymentStatusDto::fromNetopiaVerifyAuth($data);
@@ -85,15 +85,15 @@ it('parses a verify-auth response', function () {
 
 it('parses an IPN payload', function () {
     $payload = [
-        'error'   => ['code' => '00', 'message' => 'Approved'],
-        'order'   => ['orderID' => 'order-ipn'],
+        'error' => ['code' => '00', 'message' => 'Approved'],
+        'order' => ['orderID' => 'order-ipn'],
         'payment' => [
-            'ntpID'    => '777',
-            'status'   => 3,
-            'amount'   => 50.0,
+            'ntpID' => '777',
+            'status' => 3,
+            'amount' => 50.0,
             'currency' => 'RON',
         ],
-        'status'  => PaymentStatus::Paid,
+        'status' => PaymentStatus::Paid,
     ];
 
     $dto = PaymentStatusDto::fromIpnPayload($payload);
@@ -108,10 +108,10 @@ it('parses an IPN payload', function () {
 
 it('falls back to config currency when not present in response', function () {
     $data = [
-        'error'   => ['code' => '00', 'message' => 'Approved'],
-        'order'   => ['orderID' => 'order-x'],
+        'error' => ['code' => '00', 'message' => 'Approved'],
+        'order' => ['orderID' => 'order-x'],
         'payment' => ['ntpID' => '1', 'status' => 3, 'amount' => 5.0],
-        'status'  => PaymentStatus::Paid,
+        'status' => PaymentStatus::Paid,
     ];
 
     $dto = PaymentStatusDto::fromNetopiaStatus($data);

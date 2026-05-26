@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MarianDumitru\Netopay;
 
+use Illuminate\Support\Facades\Route;
 use MarianDumitru\Netopay\Contracts\NetopiaClientInterface;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
@@ -22,15 +23,15 @@ class NetopayServiceProvider extends PackageServiceProvider
         $this->app->singleton(NetopiaClientInterface::class, function () {
             $sandbox = config('netopay.sandbox', true);
 
-            $apiKey            = $sandbox
+            $apiKey = $sandbox
                 ? config('netopay.sandbox_credentials.api_key')
                 : config('netopay.live.api_key');
 
-            $startEndpoint     = $sandbox
+            $startEndpoint = $sandbox
                 ? config('netopay.endpoints.sandbox.start')
                 : config('netopay.endpoints.live.start');
 
-            $statusEndpoint    = $sandbox
+            $statusEndpoint = $sandbox
                 ? config('netopay.endpoints.sandbox.status')
                 : config('netopay.endpoints.live.status');
 
@@ -39,9 +40,9 @@ class NetopayServiceProvider extends PackageServiceProvider
                 : config('netopay.endpoints.live.verify_auth');
 
             return new NetopiaClient(
-                apiKey:             $apiKey,
-                startEndpoint:      $startEndpoint,
-                statusEndpoint:     $statusEndpoint,
+                apiKey: $apiKey,
+                startEndpoint: $startEndpoint,
+                statusEndpoint: $statusEndpoint,
                 verifyAuthEndpoint: $verifyAuthEndpoint,
             );
         });
@@ -54,12 +55,12 @@ class NetopayServiceProvider extends PackageServiceProvider
     public function packageBooted(): void
     {
         if (config('netopay.routes.enabled', true)) {
-            $prefix     = config('netopay.routes.prefix', 'netopia');
+            $prefix = config('netopay.routes.prefix', 'netopia');
             $middleware = config('netopay.routes.middleware', []);
 
-            \Illuminate\Support\Facades\Route::prefix($prefix)
+            Route::prefix($prefix)
                 ->middleware($middleware)
-                ->group(__DIR__ . '/../routes/web.php');
+                ->group(__DIR__.'/../routes/web.php');
         }
     }
 }

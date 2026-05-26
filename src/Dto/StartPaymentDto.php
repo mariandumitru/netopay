@@ -10,24 +10,23 @@ class StartPaymentDto
         public array $options,
         public array $instrument,
         public array $data,
-    ) {
-    }
+    ) {}
 
     public static function forHostedPage(): self
     {
         return new self(
-            options:    ['installments' => 0, 'bonus' => 0],
+            options: ['installments' => 0, 'bonus' => 0],
             instrument: ['type' => 'card'],
-            data:       [],
+            data: [],
         );
     }
 
     public static function fromToken(string $token): self
     {
         return new self(
-            options:    [],
+            options: [],
             instrument: ['type' => 'card', 'token' => $token],
-            data:       [],
+            data: [],
         );
     }
 
@@ -35,11 +34,11 @@ class StartPaymentDto
     {
         $result = ['instrument' => $this->instrument];
 
-        if (!empty($this->options)) {
+        if (! empty($this->options)) {
             $result['options'] = $this->options;
         }
 
-        if (!empty($this->data)) {
+        if (! empty($this->data)) {
             $result['data'] = $this->data;
         }
 

@@ -6,13 +6,15 @@ namespace MarianDumitru\Netopay\Events;
 
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
-use MarianDumitru\Netopay\Dto\PaymentStatusDto;
+use Throwable;
 
-class NetopiaPaymentFailed
+class NetopiaIpnProcessingFailed
 {
     use Dispatchable, SerializesModels;
 
     public function __construct(
-        public readonly PaymentStatusDto $status,
+        public readonly Throwable $exception,
+        public readonly array $payload,
+        public readonly array $headers,
     ) {}
 }

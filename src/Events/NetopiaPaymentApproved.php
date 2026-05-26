@@ -14,6 +14,5 @@ class NetopiaPaymentApproved
 
     public function __construct(
         public readonly PaymentStatusDto $status,
-    ) {
-    }
+    ) {}
 }

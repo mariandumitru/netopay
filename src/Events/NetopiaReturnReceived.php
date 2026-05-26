@@ -13,8 +13,7 @@ class NetopiaReturnReceived
 
     public function __construct(
         public readonly string $orderId,
-        public readonly array  $formData,
-        public readonly array  $headers,
-    ) {
-    }
+        public readonly array $formData,
+        public readonly array $headers,
+    ) {}
 }

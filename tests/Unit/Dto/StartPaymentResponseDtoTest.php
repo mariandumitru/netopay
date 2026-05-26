@@ -7,14 +7,14 @@ use MarianDumitru\Netopay\Dto\StartPaymentResponseDto;
 it('parses a hosted page start response', function () {
     $data = [
         'customerAction' => [],
-        'error'          => ['code' => '101', 'message' => 'Redirect user to payment page'],
-        'payment'        => [
-            'amount'       => 323.76,
-            'binding'      => ['expireMonth' => 0, 'expireYear' => 0],
-            'currency'     => 'RON',
-            'ntpID'        => '2747182',
-            'paymentURL'   => 'https://secure-sandbox.netopia-payments.com/ui/card?p=BwKP',
-            'status'       => 1,
+        'error' => ['code' => '101', 'message' => 'Redirect user to payment page'],
+        'payment' => [
+            'amount' => 323.76,
+            'binding' => ['expireMonth' => 0, 'expireYear' => 0],
+            'currency' => 'RON',
+            'ntpID' => '2747182',
+            'paymentURL' => 'https://secure-sandbox.netopia-payments.com/ui/card?p=BwKP',
+            'status' => 1,
         ],
     ];
 
@@ -31,11 +31,11 @@ it('parses a hosted page start response', function () {
 it('parses a response with a payment token', function () {
     $data = [
         'customerAction' => [],
-        'error'          => ['code' => '00', 'message' => 'Approved'],
-        'payment'        => [
-            'ntpID'   => '9999',
-            'status'  => 3,
-            'token'   => 'abc123token==',
+        'error' => ['code' => '00', 'message' => 'Approved'],
+        'payment' => [
+            'ntpID' => '9999',
+            'status' => 3,
+            'token' => 'abc123token==',
         ],
     ];
 
@@ -48,9 +48,9 @@ it('parses a response with a payment token', function () {
 it('parses a 3DS response with customerAction', function () {
     $data = [
         'customerAction' => ['url' => 'https://bank.example.com/3ds', 'authenticationToken' => 'tok123'],
-        'error'          => ['code' => '102', 'message' => '3DS required'],
-        'payment'        => [
-            'ntpID'  => '1234',
+        'error' => ['code' => '102', 'message' => '3DS required'],
+        'payment' => [
+            'ntpID' => '1234',
             'status' => 15,
         ],
     ];
