@@ -7,21 +7,20 @@ namespace MarianDumitru\Netopay;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use MarianDumitru\Netopay\Contracts\NetopiaClientInterface;
-use MarianDumitru\Netopay\Dto\OrderData;
 use MarianDumitru\Netopay\Dto\IpnPayloadDto;
-use MarianDumitru\Netopay\Dto\StartPaymentRequestDto;
-use MarianDumitru\Netopay\Dto\StartPaymentResponseDto;
+use MarianDumitru\Netopay\Dto\OrderDto;
 use MarianDumitru\Netopay\Dto\PaymentStatusDto;
 use MarianDumitru\Netopay\Dto\StartConfigDto;
 use MarianDumitru\Netopay\Dto\StartOrderDto;
 use MarianDumitru\Netopay\Dto\StartPaymentDto;
+use MarianDumitru\Netopay\Dto\StartPaymentRequestDto;
+use MarianDumitru\Netopay\Dto\StartPaymentResponseDto;
 
 class Netopay
 {
     public function __construct(
         private readonly NetopiaClientInterface $client,
-    ) {
-    }
+    ) {}
 
     /**
      * Initiate a hosted-page payment. Netopia redirects the user to enter card details.
@@ -29,13 +28,13 @@ class Netopay
      * @throws RequestException
      * @throws ConnectionException
      */
-    public function start(OrderData $orderData): StartPaymentResponseDto
+    public function start(OrderDto $orderData): StartPaymentResponseDto
     {
         $posSignature = $this->posSignature();
-        $orderDto     = StartOrderDto::fromOrderData($orderData, $posSignature);
-        $configDto    = new StartConfigDto();
-        $paymentDto   = StartPaymentDto::forHostedPage();
-        $request      = StartPaymentRequestDto::build($orderDto, $configDto, $paymentDto);
+        $orderDto = StartOrderDto::fromOrderData($orderData, $posSignature);
+        $configDto = new StartConfigDto;
+        $paymentDto = StartPaymentDto::forHostedPage();
+        $request = StartPaymentRequestDto::build($orderDto, $configDto, $paymentDto);
 
         return $this->client->start($request);
     }
@@ -46,13 +45,13 @@ class Netopay
      * @throws RequestException
      * @throws ConnectionException
      */
-    public function startWithToken(OrderData $orderData, string $token): StartPaymentResponseDto
+    public function startWithToken(OrderDto $orderData, string $token): StartPaymentResponseDto
     {
         $posSignature = $this->posSignature();
-        $orderDto     = StartOrderDto::fromOrderData($orderData, $posSignature);
-        $configDto    = new StartConfigDto();
-        $paymentDto   = StartPaymentDto::fromToken($token);
-        $request      = StartPaymentRequestDto::build($orderDto, $configDto, $paymentDto);
+        $orderDto = StartOrderDto::fromOrderData($orderData, $posSignature);
+        $configDto = new StartConfigDto;
+        $paymentDto = StartPaymentDto::fromToken($token);
+        $request = StartPaymentRequestDto::build($orderDto, $configDto, $paymentDto);
 
         return $this->client->start($request);
     }

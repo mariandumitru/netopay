@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace MarianDumitru\Netopay\Contracts;
 
 use MarianDumitru\Netopay\Dto\IpnPayloadDto;
+use MarianDumitru\Netopay\Dto\PaymentStatusDto;
 use MarianDumitru\Netopay\Dto\StartPaymentRequestDto;
 use MarianDumitru\Netopay\Dto\StartPaymentResponseDto;
-use MarianDumitru\Netopay\Dto\PaymentStatusDto;
 
 interface NetopiaClientInterface
 {

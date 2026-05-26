@@ -13,6 +13,7 @@ use MarianDumitru\Netopay\Contracts\NetopiaClientInterface;
 use MarianDumitru\Netopay\Dto\IpnPayloadDto;
 use MarianDumitru\Netopay\Dto\PaymentStatusDto;
 use MarianDumitru\Netopay\Enums\PaymentStatus;
+use MarianDumitru\Netopay\Events\NetopiaIpnProcessingFailed;
 use MarianDumitru\Netopay\Events\NetopiaPaymentApproved;
 use MarianDumitru\Netopay\Events\NetopiaPaymentFailed;
 use MarianDumitru\Netopay\Events\NetopiaPaymentPending;
@@ -21,27 +22,23 @@ use Throwable;
 
 class NetopiaWebhookController extends Controller
 {
-    public function __construct(
-        private readonly NetopiaClientInterface $client,
-    )
+    public function ipn(NetopiaClientInterface $netopiaClient, Request $request): Response
     {
-    }
-
-    public function ipn(Request $request): Response
-    {
-        $body    = $request->all();
+        $body = $request->all();
         $headers = $request->headers->all();
 
         try {
-            $parsed    = $this->client->handleIpn(new IpnPayloadDto($body, $headers));
-            $confirmed = $this->client->retrieveStatus($parsed->providerPaymentId, $parsed->orderId);
+            $ipnStatus = $netopiaClient->handleIpn(new IpnPayloadDto($body, $headers));
+            $confirmedStatus = $netopiaClient->retrieveStatus($ipnStatus->providerPaymentId, $ipnStatus->orderId);
 
-            $this->firePaymentEvent($confirmed);
+            $this->dispatchPaymentEvent($confirmedStatus);
         } catch (Throwable $e) {
             Log::error('Netopia IPN processing failed', [
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
                 'payload' => $body,
             ]);
+
+            NetopiaIpnProcessingFailed::dispatch($e, $body, $headers);
         }
 
         return response()->noContent();
@@ -49,17 +46,24 @@ class NetopiaWebhookController extends Controller
 
     public function return(Request $request): RedirectResponse
     {
-        $orderId  = $request->query('orderId') ?? $request->input('orderId', '');
-        $formData = $request->except('orderId');
+        $orderId = (string) ($request->query('orderId') ?? $request->input('orderId', ''));
 
-        NetopiaReturnReceived::dispatch((string) $orderId, $formData, $request->headers->all());
+        if ($orderId === '') {
+            Log::warning('Netopia return received with no orderId', [
+                'query' => $request->query(),
+                'input' => $request->except([]),
+                'headers' => $request->headers->all(),
+            ]);
+        }
+
+        NetopiaReturnReceived::dispatch($orderId, $request->except('orderId'), $request->headers->all());
 
         $redirect = config('netopay.after_payment_redirect', '/');
 
         return redirect($redirect);
     }
 
-    private function firePaymentEvent(PaymentStatusDto $status): void
+    private function dispatchPaymentEvent(PaymentStatusDto $status): void
     {
         match ($status->state) {
             PaymentStatus::Paid, PaymentStatus::Confirmed => NetopiaPaymentApproved::dispatch($status),

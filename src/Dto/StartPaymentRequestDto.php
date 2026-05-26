@@ -7,11 +7,10 @@ namespace MarianDumitru\Netopay\Dto;
 readonly class StartPaymentRequestDto
 {
     public function __construct(
-        private StartConfigDto  $config,
-        private StartOrderDto   $order,
+        private StartConfigDto $config,
+        private StartOrderDto $order,
         private StartPaymentDto $payment,
-    ) {
-    }
+    ) {}
 
     public static function build(StartOrderDto $order, StartConfigDto $config, StartPaymentDto $payment): self
     {
@@ -21,9 +20,9 @@ readonly class StartPaymentRequestDto
     public function toArray(): array
     {
         return [
-            'config'  => $this->config->toArray(),
+            'config' => $this->config->toArray(),
             'payment' => $this->payment->toArray(),
-            'order'   => $this->order->toArray(),
+            'order' => $this->order->toArray(),
         ];
     }
 }

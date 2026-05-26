@@ -10,9 +10,9 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use MarianDumitru\Netopay\Contracts\NetopiaClientInterface;
 use MarianDumitru\Netopay\Dto\IpnPayloadDto;
+use MarianDumitru\Netopay\Dto\PaymentStatusDto;
 use MarianDumitru\Netopay\Dto\StartPaymentRequestDto;
 use MarianDumitru\Netopay\Dto\StartPaymentResponseDto;
-use MarianDumitru\Netopay\Dto\PaymentStatusDto;
 use MarianDumitru\Netopay\Enums\PaymentStatus;
 
 readonly class NetopiaClient implements NetopiaClientInterface
@@ -22,8 +22,7 @@ readonly class NetopiaClient implements NetopiaClientInterface
         private string $startEndpoint,
         private string $statusEndpoint,
         private string $verifyAuthEndpoint,
-    ) {
-    }
+    ) {}
 
     /**
      * @throws RequestException
@@ -36,8 +35,8 @@ readonly class NetopiaClient implements NetopiaClientInterface
         ]);
 
         $response = Http::withHeaders($this->authorizationHeaders())
-                        ->asJson()
-                        ->post($this->startEndpoint, $requestPayload->toArray());
+            ->asJson()
+            ->post($this->startEndpoint, $requestPayload->toArray());
 
         $response->throw();
 
@@ -50,9 +49,9 @@ readonly class NetopiaClient implements NetopiaClientInterface
 
     public function handleIpn(IpnPayloadDto $ipnPayload): PaymentStatusDto
     {
-        $providerStatus    = (int) ($ipnPayload->body['payment']['status'] ?? 0);
-        $status            = PaymentStatus::getStatus($providerStatus);
-        $payload           = $ipnPayload->body;
+        $providerStatus = (int) ($ipnPayload->body['payment']['status'] ?? 0);
+        $status = PaymentStatus::getStatus($providerStatus);
+        $payload = $ipnPayload->body;
         $payload['status'] = $status;
 
         Log::debug('Netopia IPN received', ['payload' => $ipnPayload->body]);
@@ -67,15 +66,15 @@ readonly class NetopiaClient implements NetopiaClientInterface
     public function retrieveStatus(string $ntpId, string $orderId): PaymentStatusDto
     {
         $response = Http::withHeaders($this->authorizationHeaders())
-                        ->timeout(5)
-                        ->asJson()
-                        ->post($this->statusEndpoint, ['ntpID' => $ntpId, 'orderID' => $orderId]);
+            ->timeout(5)
+            ->asJson()
+            ->post($this->statusEndpoint, ['ntpID' => $ntpId, 'orderID' => $orderId]);
 
         $response->throw();
 
-        $data           = $response->json();
+        $data = $response->json();
         $providerStatus = (int) ($data['payment']['status'] ?? 0);
-        $status         = PaymentStatus::getStatus($providerStatus);
+        $status = PaymentStatus::getStatus($providerStatus);
         $data['status'] = $status;
 
         Log::debug('Netopia retrieve status response', ['response' => $data]);
@@ -90,20 +89,20 @@ readonly class NetopiaClient implements NetopiaClientInterface
     public function verifyAuth(string $orderId, string $authenticationToken, string $ntpId, array $formData): PaymentStatusDto
     {
         $response = Http::withHeaders($this->authorizationHeaders())
-                        ->timeout(5)
-                        ->asJson()
-                        ->post($this->verifyAuthEndpoint, [
-                            'authenticationToken' => $authenticationToken,
-                            'ntpID'               => $ntpId,
-                            'formData'            => $formData,
-                        ]);
+            ->timeout(5)
+            ->asJson()
+            ->post($this->verifyAuthEndpoint, [
+                'authenticationToken' => $authenticationToken,
+                'ntpID' => $ntpId,
+                'formData' => $formData,
+            ]);
 
         $response->throw();
 
-        $data                     = $response->json();
-        $providerStatus           = (int) ($data['payment']['status'] ?? 0);
-        $state                    = PaymentStatus::getStatus($providerStatus);
-        $data['status']           = $state;
+        $data = $response->json();
+        $providerStatus = (int) ($data['payment']['status'] ?? 0);
+        $state = PaymentStatus::getStatus($providerStatus);
+        $data['status'] = $state;
         $data['order']['orderID'] = $orderId;
 
         Log::debug('Netopia verify auth response', ['response' => $data]);
