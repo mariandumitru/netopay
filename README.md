@@ -10,6 +10,58 @@ The package handles all HTTP communication with Netopia and fires **Laravel even
 
 ---
 
+## Quick start
+
+The happy path from `composer require` to a working sandbox payment, in five steps. Each step has a full section further down.
+
+**1. Install and publish the config**
+
+```bash
+composer require mariandumitru/netopay
+php artisan vendor:publish --tag=netopay-config
+```
+
+**2. Set the credentials** in `.env` (sandbox is the default):
+
+```env
+NETOPIA_API_KEY_SANDBOX=your-real-sandbox-api-key
+NETOPIA_POS_SIGNATURE_SANDBOX=your-real-sandbox-pos-signature
+NETOPIA_AFTER_PAYMENT_REDIRECT=/dashboard
+```
+
+**3. Exclude the package routes from CSRF** in `bootstrap/app.php`:
+
+```php
+->withMiddleware(function (Middleware $middleware) {
+    $middleware->validateCsrfTokens(except: ['netopia/ipn', 'netopia/return']);
+})
+```
+
+**4. Start a payment** from your own controller:
+
+```php
+use MarianDumitru\Netopay\Facades\Netopay;
+
+$response = Netopay::start($orderData);
+
+return redirect($response->paymentUrl); // see XHR note in section 1 below if you're on Inertia/Livewire
+```
+
+**5. Listen for the outcome** in `App\Providers\AppServiceProvider::boot()`:
+
+```php
+use Illuminate\Support\Facades\Event;
+use MarianDumitru\Netopay\Events\NetopiaPaymentApproved;
+
+Event::listen(NetopiaPaymentApproved::class, function ($event) {
+    // fulfil the order — see "Handling payment outcomes" for the full pattern
+});
+```
+
+That's the whole picture. The rest of this README expands on each step (building `$orderData`, the double-fulfilment guard, 3DS, recurring payments, testing).
+
+---
+
 ## Requirements
 
 - PHP 8.3+
@@ -88,6 +140,8 @@ Set `NETOPIA_SANDBOX=false` in production. The package automatically switches AP
 | `NETOPIA_STATUS_URL_LIVE` | live `/operation/status` URL | Override the live status endpoint. |
 | `NETOPIA_VERIFY_AUTH_URL_LIVE` | live `/payment/card/verify-auth` URL | Override the live 3DS verify endpoint. |
 
+> **About `NETOPIA_NOTIFY_URL` / `NETOPIA_REDIRECT_URL`.** If you set these explicitly, they must point at the package's actual webhook routes — `<your-app-url>/netopia/ipn` and `<your-app-url>/netopia/return` by default. If you changed `routes.prefix` in `config/netopay.php` (e.g. to `payments`), the URLs become `<your-app-url>/payments/ipn` and `<your-app-url>/payments/return`. The endpoint paths inside the prefix (`/ipn`, `/return`) are fixed by the package.
+
 ### Routes
 
 The package registers two routes automatically:
@@ -128,7 +182,7 @@ You can disable the package routes entirely and register your own:
 
 ### 1. Initiating a payment
 
-Build an `OrderData` DTO from your application's data and call `Netopay::start()`. This returns a `StartPaymentResponseDto` containing the Netopia-hosted page URL to redirect the user to.
+Build an `OrderDto` from your application's data and call `Netopay::start()`. This returns a `StartPaymentResponseDto` containing the Netopia-hosted page URL to redirect the user to.
 
 ```php
 use MarianDumitru\Netopay\Dto\BillingDto;
@@ -173,6 +227,20 @@ return redirect($response->paymentUrl);
 ```
 
 > The `payload` column above is just a JSON column on your `payments` table — name it whatever fits your schema. The point is to keep `$response->customerAction` somewhere your `NetopiaReturnReceived` listener can read it, since 3DS verification needs the `authenticationToken`.
+
+> **XHR / SPA gotcha.** A plain `redirect($response->paymentUrl)` returns a `302` to the browser. If you initiate the payment via XHR (Axios, Fetch, Inertia `router.post`, Livewire `wire:click`), the XHR layer **cannot follow a cross-origin redirect** to Netopia's domain — the user appears stuck and nothing happens. Use the SPA-appropriate redirect instead:
+>
+> ```php
+> // Inertia
+> return Inertia::location($response->paymentUrl);
+>
+> // Livewire (v3)
+> return $this->redirect($response->paymentUrl, navigate: false);
+>
+> // Axios / Fetch — return the URL as JSON and redirect on the client
+> return response()->json(['paymentUrl' => $response->paymentUrl]);
+> // then on the front-end: window.location.href = data.paymentUrl;
+> ```
 
 ### 2. Handling payment outcomes
 
@@ -338,6 +406,47 @@ echo $status->rrn;
 echo $status->paymentToken;
 ```
 
+### 5. Landing the user on the just-paid resource
+
+`NETOPIA_AFTER_PAYMENT_REDIRECT` is a static URL — fine for "always go to `/dashboard`," but most apps want to land the user on the specific resource they paid for (e.g. `/orders/123`). The pattern is to stash the post-payment URL in the session before redirecting to Netopia, then pull it out in your `NetopiaReturnReceived` listener and use it instead of the static config.
+
+**At start time** (your controller, just before redirecting to Netopia):
+
+```php
+session()->put(
+    'netopay.post_payment_redirect.' . $payment->uuid,
+    route('orders.show', $order),
+);
+
+return redirect($response->paymentUrl);
+```
+
+**On return** (your listener), override the package's static redirect by returning your own response. Because the package's return controller has already redirected to `NETOPIA_AFTER_PAYMENT_REDIRECT` by the time your listener runs, the cleanest pattern is to point `NETOPIA_AFTER_PAYMENT_REDIRECT` at an intermediate route in your app — `/payments/landing` — and resolve the real destination there:
+
+```php
+// routes/web.php
+Route::get('/payments/landing', function () {
+    // The orderId arrives via NetopiaReturnReceived; the listener can stash it on the session
+    // under 'netopay.last_order_id' so this intermediate route knows where to go.
+    $orderId = session()->pull('netopay.last_order_id');
+    $url     = session()->pull("netopay.post_payment_redirect.{$orderId}", '/dashboard');
+
+    return redirect($url);
+});
+```
+
+```php
+// HandleNetopiaReturn listener
+public function handle(NetopiaReturnReceived $event): void
+{
+    session()->put('netopay.last_order_id', $event->orderId);
+
+    // ... the rest of your verifyAuth / retrieveStatus logic
+}
+```
+
+Set `NETOPIA_AFTER_PAYMENT_REDIRECT=/payments/landing` in `.env` and every payment lands the user on the right page.
+
 ---
 
 ## Events Reference
@@ -378,10 +487,10 @@ echo $status->paymentToken;
 use MarianDumitru\Netopay\Facades\Netopay;
 
 // Initiate a hosted-page payment
-Netopay::start(OrderData $orderData): StartPaymentResponseDto
+Netopay::start(OrderDto $orderData): StartPaymentResponseDto
 
 // Initiate a merchant-initiated recurring payment
-Netopay::startWithToken(OrderData $orderData, string $token): StartPaymentResponseDto
+Netopay::startWithToken(OrderDto $orderData, string $token): StartPaymentResponseDto
 
 // Retrieve confirmed status from Netopia
 Netopay::retrieveStatus(string $ntpId, string $orderId): PaymentStatusDto
@@ -406,6 +515,17 @@ LOG_LEVEL=debug
 ```
 
 You'll then see entries like `Netopia start payment request`, `Netopia start payment response`, `Netopia IPN received`, and `Netopia retrieve status response` in your log channel. Failures are logged at `error` — search for `Netopia IPN processing failed`.
+
+### Netopia replies with "99 POS not found" or "POS inactive"
+
+Your `NETOPIA_POS_SIGNATURE_SANDBOX` / `NETOPIA_POS_SIGNATURE_LIVE` is wrong, empty, or still set to the README placeholder. Common causes:
+
+- The env var is unset or empty.
+- The value is still `your-sandbox-pos-signature` from the example block — copy-paste leftover.
+- The sandbox signature was used in production (or vice versa) — check `NETOPIA_SANDBOX`.
+- Both `NETOPIA_POS_SIGNATURE_*` and `NETOPIA_SALES_POINT_KEY` are set, and the fallback is masking the value you think is being used. Remove `NETOPIA_SALES_POINT_KEY` to make the resolution explicit.
+
+Verify the signature in your Netopia merchant dashboard and re-run the call with `LOG_LEVEL=debug` to inspect the exact request payload (`Netopia start payment request`).
 
 ### Missing `orderId` on the return route
 
