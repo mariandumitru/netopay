@@ -29,7 +29,6 @@ class NetopiaWebhookController extends Controller
 
         try {
             $ipnStatus = $netopiaClient->handleIpn(new IpnPayloadDto($body, $headers));
-            //$confirmedStatus = $netopiaClient->retrieveStatus($ipnStatus->providerPaymentId, $ipnStatus->orderId);
             $confirmedStatus = $netopiaClient->retrieveStatus($ipnStatus);
 
             $this->dispatchPaymentEvent($confirmedStatus);

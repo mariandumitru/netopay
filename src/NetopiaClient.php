@@ -21,7 +21,7 @@ readonly class NetopiaClient implements NetopiaClientInterface
         private string $apiKey,
         private string $startEndpoint,
         private string $statusEndpoint,
-        private string $verifyAuthEndpoint,
+        private string $verifyAuthEndpoint
     ) {}
 
     /**

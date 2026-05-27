@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Http;
 use MarianDumitru\Netopay\Dto\BillingDto;
 use MarianDumitru\Netopay\Dto\IpnPayloadDto;
+use MarianDumitru\Netopay\Dto\PaymentStatusDto;
 use MarianDumitru\Netopay\Dto\StartConfigDto;
 use MarianDumitru\Netopay\Dto\StartOrderDto;
 use MarianDumitru\Netopay\Dto\StartPaymentDto;
@@ -80,7 +81,14 @@ it('calls the status endpoint with ntpID and orderID', function () {
         ], 200),
     ]);
 
-    $dto = makeClient()->retrieveStatus('2747182', 'order-1');
+    $initialStatus = PaymentStatusDto::fromIpnPayload(
+        [
+            "order" => ["orderID" => "order-1", "currency" => "RON"],
+            "payment" => ["ntpID" => "2747182"],
+            "status" => PaymentStatus::Paid,
+        ]
+    );
+    $dto = makeClient()->retrieveStatus($initialStatus);
 
     expect($dto->state)->toBe(PaymentStatus::Paid)
         ->and($dto->orderId)->toBe('order-1')

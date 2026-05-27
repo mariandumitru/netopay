@@ -18,9 +18,8 @@ use MarianDumitru\Netopay\Dto\StartPaymentResponseDto;
 
 class Netopay
 {
-    public function __construct(
-        private readonly NetopiaClientInterface $client,
-    ) {}
+    public function __construct(private readonly NetopiaClientInterface $client)
+    {}
 
     /**
      * Initiate a hosted-page payment. Netopia redirects the user to enter card details.
