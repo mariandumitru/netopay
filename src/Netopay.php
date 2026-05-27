@@ -62,9 +62,9 @@ class Netopay
      * @throws RequestException
      * @throws ConnectionException
      */
-    public function retrieveStatus(string $ntpId, string $orderId): PaymentStatusDto
+    public function retrieveStatus(PaymentStatusDto $status): PaymentStatusDto
     {
-        return $this->client->retrieveStatus($ntpId, $orderId);
+        return $this->client->retrieveStatus($status);
     }
 
     /**

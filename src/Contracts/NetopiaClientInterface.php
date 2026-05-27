@@ -15,7 +15,7 @@ interface NetopiaClientInterface
 
     public function handleIpn(IpnPayloadDto $ipnPayload): PaymentStatusDto;
 
-    public function retrieveStatus(string $ntpId, string $orderId): PaymentStatusDto;
+    public function retrieveStatus(PaymentStatusDto $status): PaymentStatusDto;
 
     public function verifyAuth(string $orderId, string $authenticationToken, string $ntpId, array $formData): PaymentStatusDto;
 }
