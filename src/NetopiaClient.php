@@ -21,7 +21,7 @@ readonly class NetopiaClient implements NetopiaClientInterface
         private string $apiKey,
         private string $startEndpoint,
         private string $statusEndpoint,
-        private string $verifyAuthEndpoint,
+        private string $verifyAuthEndpoint
     ) {}
 
     /**
@@ -63,12 +63,12 @@ readonly class NetopiaClient implements NetopiaClientInterface
      * @throws RequestException
      * @throws ConnectionException
      */
-    public function retrieveStatus(string $ntpId, string $orderId): PaymentStatusDto
+    public function retrieveStatus(PaymentStatusDto $status): PaymentStatusDto
     {
         $response = Http::withHeaders($this->authorizationHeaders())
             ->timeout(5)
             ->asJson()
-            ->post($this->statusEndpoint, ['ntpID' => $ntpId, 'orderID' => $orderId]);
+            ->post($this->statusEndpoint, ['ntpID' => $status->providerPaymentId, 'orderID' => $status->orderId]);
 
         $response->throw();
 

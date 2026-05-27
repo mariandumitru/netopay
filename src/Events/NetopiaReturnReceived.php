@@ -12,8 +12,8 @@ class NetopiaReturnReceived
     use Dispatchable, SerializesModels;
 
     public function __construct(
-        public readonly string $orderId,
-        public readonly array $formData,
-        public readonly array $headers,
+        public string $orderId,
+        public array $formData,
+        public array $headers
     ) {}
 }
