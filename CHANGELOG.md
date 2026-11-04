@@ -2,6 +2,10 @@
 
 All notable changes to `netopay` will be documented in this file.
 
+## v1.0.1 - 2026-11-04
+
+Bug fixes
+
 ## PHP 8.5 & Laravel 12/13 support - 2026-11-04
 
 ### Breaking changes
