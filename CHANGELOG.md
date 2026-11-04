@@ -2,6 +2,20 @@
 
 All notable changes to `netopay` will be documented in this file.
 
+## 1.1.0 - 2026-11-04
+
+### Added
+
+- `PaymentStatus` cases: `Cancelled` (4), `Expired` (23), `Refunded` (8, 17), `Chargeback` (9, 10, 16).
+- Events: `NetopiaPaymentRefunded` and `NetopiaPaymentChargeback`.
+
+### Upgrading
+
+- A `match` on `PaymentStatus` without a `default` arm must handle the new cases.
+- `Cancelled` and `Expired` fire `NetopiaPaymentFailed`.
+- Code 13 (fraud review) now fires `NetopiaPaymentPending` instead of `NetopiaPaymentFailed`.
+- Refund and chargeback events can arrive for orders already marked paid.
+
 ## Fixed statuses - 2026-11-04
 
 ### Fixed
