@@ -121,18 +121,19 @@ it('falls back to config currency when not present in response', function () {
 
 // ── providerStatusCode ───────────────────────────────────────────────────────
 
-it('keeps the raw netopia status code from every factory', function (string $factory) {
+it('keeps the raw netopia status code from every factory', function (string $factory, int $code) {
     $data = [
         'order' => ['orderID' => 'order-code'],
-        'payment' => ['ntpID' => '1', 'status' => 6],
-        'status' => PaymentStatus::Pending,
+        'payment' => ['ntpID' => '1', 'status' => $code],
+        'status' => PaymentStatus::getStatus($code),
     ];
 
     $dto = PaymentStatusDto::$factory($data);
 
-    expect($dto->providerStatusCode)->toBe(6)
-        ->and($dto->toArray()['providerStatusCode'])->toBe(6);
-})->with(['fromIpnPayload', 'fromNetopiaStatus', 'fromNetopiaVerifyAuth']);
+    expect($dto->providerStatusCode)->toBe($code)
+        ->and($dto->toArray()['providerStatusCode'])->toBe($code);
+})->with(['fromIpnPayload', 'fromNetopiaStatus', 'fromNetopiaVerifyAuth'])
+    ->with(['pending' => 6, 'chargeback init' => 9, 'chargeback accept' => 10, 'chargeback representment' => 16]);
 
 it('reads a numeric-string status code as an int', function () {
     $dto = PaymentStatusDto::fromIpnPayload([

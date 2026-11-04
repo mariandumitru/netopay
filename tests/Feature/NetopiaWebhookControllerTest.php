@@ -9,8 +9,10 @@ use MarianDumitru\Netopay\Dto\PaymentStatusDto;
 use MarianDumitru\Netopay\Enums\PaymentStatus;
 use MarianDumitru\Netopay\Events\NetopiaIpnProcessingFailed;
 use MarianDumitru\Netopay\Events\NetopiaPaymentApproved;
+use MarianDumitru\Netopay\Events\NetopiaPaymentChargeback;
 use MarianDumitru\Netopay\Events\NetopiaPaymentFailed;
 use MarianDumitru\Netopay\Events\NetopiaPaymentPending;
+use MarianDumitru\Netopay\Events\NetopiaPaymentRefunded;
 use MarianDumitru\Netopay\Events\NetopiaReturnReceived;
 
 // ── IPN ──────────────────────────────────────────────────────────────────────
@@ -115,9 +117,17 @@ it('fires the event that matches each status category', function (int $code, str
         'payment' => ['ntpID' => '500', 'status' => $code],
     ])->assertNoContent();
 
-    $events = [NetopiaPaymentApproved::class, NetopiaPaymentPending::class, NetopiaPaymentFailed::class];
+    $events = [
+        NetopiaPaymentApproved::class,
+        NetopiaPaymentPending::class,
+        NetopiaPaymentFailed::class,
+        NetopiaPaymentRefunded::class,
+        NetopiaPaymentChargeback::class,
+    ];
 
-    Event::assertDispatched($expected, fn ($e) => $e->status->providerStatusCode === $code);
+    Event::assertDispatched($expected, fn ($e) => $e->status->providerStatusCode === $code &&
+        $e->status->state === PaymentStatus::getStatus($code)
+    );
 
     foreach (array_diff($events, [$expected]) as $other) {
         Event::assertNotDispatched($other);
@@ -126,14 +136,21 @@ it('fires the event that matches each status category', function (int $code, str
     'new' => [1, NetopiaPaymentPending::class],
     'opened' => [2, NetopiaPaymentPending::class],
     'paid' => [3, NetopiaPaymentApproved::class],
+    'canceled' => [4, NetopiaPaymentFailed::class],
     'confirmed' => [5, NetopiaPaymentApproved::class],
     'pending' => [6, NetopiaPaymentPending::class],
+    'credit' => [8, NetopiaPaymentRefunded::class],
+    'chargeback init' => [9, NetopiaPaymentChargeback::class],
+    'chargeback accept' => [10, NetopiaPaymentChargeback::class],
     'error' => [11, NetopiaPaymentFailed::class],
     'invalid account' => [12, NetopiaPaymentFailed::class],
-    'fraud' => [13, NetopiaPaymentFailed::class],
+    'fraud review' => [13, NetopiaPaymentPending::class],
     'pending auth' => [14, NetopiaPaymentPending::class],
     'awaiting 3DS' => [15, NetopiaPaymentPending::class],
+    'chargeback representment' => [16, NetopiaPaymentChargeback::class],
+    'reversed' => [17, NetopiaPaymentRefunded::class],
     'pending any' => [18, NetopiaPaymentPending::class],
+    'expired' => [23, NetopiaPaymentFailed::class],
 ]);
 
 it('fires no payment event and logs a warning for an unknown status', function (array $payment) {
@@ -155,6 +172,8 @@ it('fires no payment event and logs a warning for an unknown status', function (
     Event::assertNotDispatched(NetopiaPaymentApproved::class);
     Event::assertNotDispatched(NetopiaPaymentPending::class);
     Event::assertNotDispatched(NetopiaPaymentFailed::class);
+    Event::assertNotDispatched(NetopiaPaymentRefunded::class);
+    Event::assertNotDispatched(NetopiaPaymentChargeback::class);
     Event::assertNotDispatched(NetopiaIpnProcessingFailed::class);
 
     Log::shouldHaveReceived('warning')
@@ -165,6 +184,7 @@ it('fires no payment event and logs a warning for an unknown status', function (
         );
 })->with([
     'unrecognised code' => [['ntpID' => '600', 'status' => 99]],
+    'subscription code' => [['ntpID' => '603', 'status' => 19]],
     'status 0' => [['ntpID' => '601', 'status' => 0]],
     'missing payment.status' => [['ntpID' => '602']],
 ]);
@@ -363,5 +383,7 @@ it('defaults the IPN payload to an empty array when an event is built without on
 
     expect((new NetopiaPaymentApproved($status))->ipnPayload)->toBe([])
         ->and((new NetopiaPaymentPending($status))->ipnPayload)->toBe([])
-        ->and((new NetopiaPaymentFailed($status))->ipnPayload)->toBe([]);
+        ->and((new NetopiaPaymentFailed($status))->ipnPayload)->toBe([])
+        ->and((new NetopiaPaymentRefunded($status))->ipnPayload)->toBe([])
+        ->and((new NetopiaPaymentChargeback($status))->ipnPayload)->toBe([]);
 });

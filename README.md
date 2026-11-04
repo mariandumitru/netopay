@@ -252,8 +252,10 @@ The package fires Laravel events from its webhook controller. Register listeners
 use Illuminate\Support\Facades\Event;
 use MarianDumitru\Netopay\Events\NetopiaIpnProcessingFailed;
 use MarianDumitru\Netopay\Events\NetopiaPaymentApproved;
+use MarianDumitru\Netopay\Events\NetopiaPaymentChargeback;
 use MarianDumitru\Netopay\Events\NetopiaPaymentFailed;
 use MarianDumitru\Netopay\Events\NetopiaPaymentPending;
+use MarianDumitru\Netopay\Events\NetopiaPaymentRefunded;
 use MarianDumitru\Netopay\Events\NetopiaReturnReceived;
 
 public function boot(): void
@@ -261,8 +263,62 @@ public function boot(): void
     Event::listen(NetopiaPaymentApproved::class, HandlePaymentApproved::class);
     Event::listen(NetopiaPaymentFailed::class, HandlePaymentFailed::class);
     Event::listen(NetopiaPaymentPending::class, HandlePaymentPending::class);
+    Event::listen(NetopiaPaymentRefunded::class, HandlePaymentRefunded::class);
+    Event::listen(NetopiaPaymentChargeback::class, HandlePaymentChargeback::class);
     Event::listen(NetopiaReturnReceived::class, HandleNetopiaReturn::class);
     Event::listen(NetopiaIpnProcessingFailed::class, ReportIpnFailure::class);
+}
+```
+
+#### Payment statuses
+
+For each IPN, the package asks Netopia for the confirmed status, maps the numeric code to a `PaymentStatus` case, and fires one event. NETOPIA's v2 docs list only 3, 5, 12 and 15; the other codes come from the status constants in NETOPIA's official v2 PHP SDK (`netopia/payment2`).
+
+| `PaymentStatus` | Netopia codes | Meaning | IPN event |
+|---|---|---|---|
+| `Paid` | 3 | Money captured | `NetopiaPaymentApproved` |
+| `Confirmed` | 5 | Payment confirmed | `NetopiaPaymentApproved` |
+| `Pending` | 1 new, 2 opened, 6 pending, 13 fraud review, 14 pending auth, 18 pending | Not finished yet; another IPN follows | `NetopiaPaymentPending` |
+| `Awaiting3DS` | 15 | The customer must complete 3DS | `NetopiaPaymentPending` |
+| `Failed` | 11 error, 12 declined (invalid account) | Payment was refused | `NetopiaPaymentFailed` |
+| `Cancelled` | 4 | Payment voided; don't deliver | `NetopiaPaymentFailed` |
+| `Expired` | 23 | Never paid, and Netopia closed it | `NetopiaPaymentFailed` |
+| `Refunded` | 8 credit, 17 reversed | Money went back to the customer | `NetopiaPaymentRefunded` |
+| `Chargeback` | 9 initiated, 10 accepted, 16 representment | The customer disputed the payment with their bank | `NetopiaPaymentChargeback` |
+| `Unknown` | anything else, including a missing status | Not a code the package maps | none (warning logged) |
+
+`NetopiaPaymentFailed` covers three cases. Check `$event->status->state` if you treat a decline differently from a cancellation or an expiry. Every event's `$status->providerStatusCode` holds the raw Netopia code.
+
+An `Unknown` status fires no payment event, so an unrecognised code never marks an order as failed. The package logs a warning (`Netopia IPN has an unknown payment status`) with the raw code instead. Codes 7 and 19–22 are SMS and subscription statuses that card payments don't use, so they map to `Unknown` too.
+
+#### NetopiaPaymentRefunded and NetopiaPaymentChargeback
+
+> **These arrive after the order was paid.** A refund or chargeback is about money you already counted as received, so the order is usually marked paid (and maybe delivered) by then. Don't reject the event because the order isn't pending. Record it, and stop or reverse anything that hasn't happened yet.
+
+A chargeback goes through stages: initiated (9), accepted (10) and representment (16). Read `$event->status->providerStatusCode` to tell them apart. An accepted chargeback means the money is gone.
+
+```php
+use MarianDumitru\Netopay\Events\NetopiaPaymentRefunded;
+
+class HandlePaymentRefunded
+{
+    public function handle(NetopiaPaymentRefunded $event): void
+    {
+        $status = $event->status;
+
+        DB::transaction(function () use ($status) {
+            $payment = Payment::where('uuid', $status->orderId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $payment || $payment->status === 'refunded') {
+                return; // unknown order or IPN retry
+            }
+
+            // The order can already be 'paid' here — that's expected.
+            $payment->update(['status' => 'refunded']);
+        });
+    }
 }
 ```
 
@@ -436,7 +492,7 @@ if (in_array($response->state(), [PaymentStatus::Paid, PaymentStatus::Confirmed]
 ```php
 $status = Netopay::retrieveStatusById($ntpId, $orderId);
 
-echo $status->state->value;    // 'paid', 'confirmed', 'pending', 'awaiting_3ds', 'failed' or 'unknown'
+echo $status->state->value;    // e.g. 'paid', 'pending', 'failed', 'refunded' — see Payment statuses
 echo $status->providerStatusCode; // raw Netopia code, e.g. 3
 echo $status->authCode;
 echo $status->rrn;
@@ -511,7 +567,11 @@ A custom return URL bypasses the package's return route, so `NetopiaReturnReceiv
 | | `$ipnPayload` | `array` | Raw IPN body (card token, binding, instrument) |
 | `NetopiaPaymentPending` | `$status` | `PaymentStatusDto` | Payment is still in progress: `Pending` or `Awaiting3DS` (check `$status->state`) |
 | | `$ipnPayload` | `array` | Raw IPN body |
-| `NetopiaPaymentFailed` | `$status` | `PaymentStatusDto` | Payment is `Failed`: error, declined / invalid account, or fraud |
+| `NetopiaPaymentFailed` | `$status` | `PaymentStatusDto` | Payment is `Failed`, `Cancelled` or `Expired` (check `$status->state`) |
+| | `$ipnPayload` | `array` | Raw IPN body |
+| `NetopiaPaymentRefunded` | `$status` | `PaymentStatusDto` | Payment is `Refunded`: credited (8) or reversed (17). May arrive for an order already marked paid |
+| | `$ipnPayload` | `array` | Raw IPN body |
+| `NetopiaPaymentChargeback` | `$status` | `PaymentStatusDto` | Payment is in `Chargeback`: initiated (9), accepted (10) or representment (16). May arrive for an order already marked paid |
 | | `$ipnPayload` | `array` | Raw IPN body |
 | `NetopiaIpnProcessingFailed` | `$exception` | `Throwable` | Exception thrown while handling the IPN |
 | | `$payload` | `array` | Raw IPN body received from Netopia |
@@ -520,22 +580,7 @@ A custom return URL bypasses the package's return route, so `NetopiaReturnReceiv
 | | `$formData` | `array<string, mixed>` | POST/query data Netopia sent (everything except `orderId`). Pass straight to `Netopay::verifyAuth()` for 3DS flows |
 | | `$headers` | `array` | Request headers |
 
-An IPN whose status is `Unknown` fires none of the three payment events. The package logs a warning (`Netopia IPN has an unknown payment status`) with the raw code instead, so an unrecognised code never marks an order as failed.
-
-### Payment statuses
-
-`PaymentStatus::getStatus()` maps Netopia's numeric code to the enum. NETOPIA's v2 docs list only 3, 5, 12 and 15. The other codes aren't officially documented: 1 is what a hosted-page start returns, and the rest match what other NETOPIA integrations use.
-
-| `PaymentStatus` | Netopia codes | IPN event |
-|---|---|---|
-| `Paid` | 3 | `NetopiaPaymentApproved` |
-| `Confirmed` | 5 | `NetopiaPaymentApproved` |
-| `Pending` | 1 new, 2 opened, 6 pending, 14 pending auth, 18 pending | `NetopiaPaymentPending` |
-| `Awaiting3DS` | 15 | `NetopiaPaymentPending` |
-| `Failed` | 11 error, 12 invalid account / declined, 13 fraud | `NetopiaPaymentFailed` |
-| `Unknown` | anything else, including a missing status | none (warning logged) |
-
-Codes for cancellations, refunds and chargebacks aren't documented by NETOPIA, so they come through as `Unknown`. Read `$status->providerStatusCode` if your app needs to handle one of them.
+An IPN whose status is `Unknown` fires no payment event; see [Payment statuses](#payment-statuses).
 
 ### `PaymentStatusDto` properties
 
@@ -543,7 +588,7 @@ Codes for cancellations, refunds and chargebacks aren't documented by NETOPIA, s
 |---|---|---|
 | `$orderId` | `string` | Your order ID |
 | `$providerPaymentId` | `string` | Netopia's `ntpID` |
-| `$state` | `PaymentStatus` | Enum: `Paid`, `Confirmed`, `Pending`, `Awaiting3DS`, `Failed`, `Unknown` — see [Payment statuses](#payment-statuses) |
+| `$state` | `PaymentStatus` | Enum: `Paid`, `Confirmed`, `Pending`, `Awaiting3DS`, `Failed`, `Cancelled`, `Expired`, `Refunded`, `Chargeback`, `Unknown` — see [Payment statuses](#payment-statuses) |
 | `$providerStatusCode` | `?int` | Raw Netopia status code; `null` when the response has none |
 | `$authCode` | `?string` | Authorization code (available after verify-auth) |
 | `$rrn` | `?string` | Retrieval Reference Number |

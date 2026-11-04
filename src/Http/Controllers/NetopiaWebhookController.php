@@ -15,8 +15,10 @@ use MarianDumitru\Netopay\Dto\PaymentStatusDto;
 use MarianDumitru\Netopay\Enums\PaymentStatus;
 use MarianDumitru\Netopay\Events\NetopiaIpnProcessingFailed;
 use MarianDumitru\Netopay\Events\NetopiaPaymentApproved;
+use MarianDumitru\Netopay\Events\NetopiaPaymentChargeback;
 use MarianDumitru\Netopay\Events\NetopiaPaymentFailed;
 use MarianDumitru\Netopay\Events\NetopiaPaymentPending;
+use MarianDumitru\Netopay\Events\NetopiaPaymentRefunded;
 use MarianDumitru\Netopay\Events\NetopiaReturnReceived;
 use Throwable;
 
@@ -68,7 +70,9 @@ class NetopiaWebhookController extends Controller
         match ($status->state) {
             PaymentStatus::Paid, PaymentStatus::Confirmed => NetopiaPaymentApproved::dispatch($status, $ipnPayload),
             PaymentStatus::Pending, PaymentStatus::Awaiting3DS => NetopiaPaymentPending::dispatch($status, $ipnPayload),
-            PaymentStatus::Failed => NetopiaPaymentFailed::dispatch($status, $ipnPayload),
+            PaymentStatus::Failed, PaymentStatus::Cancelled, PaymentStatus::Expired => NetopiaPaymentFailed::dispatch($status, $ipnPayload),
+            PaymentStatus::Refunded => NetopiaPaymentRefunded::dispatch($status, $ipnPayload),
+            PaymentStatus::Chargeback => NetopiaPaymentChargeback::dispatch($status, $ipnPayload),
             PaymentStatus::Unknown => Log::warning('Netopia IPN has an unknown payment status, no event fired', [
                 'order_id' => $status->orderId,
                 'ntp_id' => $status->providerPaymentId,
