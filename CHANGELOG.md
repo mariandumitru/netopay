@@ -2,6 +2,10 @@
 
 All notable changes to `netopay` will be documented in this file.
 
+## 1.0.2 - 2026-11-04
+
+Fixed the changelog workflow failing when a release has no title.
+
 ## v1.0.1 - 2026-11-04
 
 Bug fixes
