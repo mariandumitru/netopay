@@ -31,7 +31,7 @@ class NetopiaWebhookController extends Controller
             $ipnStatus = $netopiaClient->handleIpn(new IpnPayloadDto($body, $headers));
             $confirmedStatus = $netopiaClient->retrieveStatus($ipnStatus);
 
-            $this->dispatchPaymentEvent($confirmedStatus);
+            $this->dispatchPaymentEvent($confirmedStatus, $body);
         } catch (Throwable $e) {
             Log::error('Netopia IPN processing failed', [
                 'error' => $e->getMessage(),
@@ -63,12 +63,12 @@ class NetopiaWebhookController extends Controller
         return redirect($redirect);
     }
 
-    private function dispatchPaymentEvent(PaymentStatusDto $status): void
+    private function dispatchPaymentEvent(PaymentStatusDto $status, array $ipnPayload): void
     {
         match ($status->state) {
-            PaymentStatus::Paid, PaymentStatus::Confirmed => NetopiaPaymentApproved::dispatch($status),
-            PaymentStatus::Awaiting3DS => NetopiaPaymentPending::dispatch($status),
-            default => NetopiaPaymentFailed::dispatch($status),
+            PaymentStatus::Paid, PaymentStatus::Confirmed => NetopiaPaymentApproved::dispatch($status, $ipnPayload),
+            PaymentStatus::Awaiting3DS => NetopiaPaymentPending::dispatch($status, $ipnPayload),
+            default => NetopiaPaymentFailed::dispatch($status, $ipnPayload),
         };
     }
 }

@@ -13,5 +13,6 @@ readonly class OrderDto
         public string $description,
         public BillingDto $billing,
         public bool $merchantInitiated = false,
+        public ?string $redirectUrl = null,
     ) {}
 }

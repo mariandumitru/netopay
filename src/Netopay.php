@@ -15,6 +15,7 @@ use MarianDumitru\Netopay\Dto\StartOrderDto;
 use MarianDumitru\Netopay\Dto\StartPaymentDto;
 use MarianDumitru\Netopay\Dto\StartPaymentRequestDto;
 use MarianDumitru\Netopay\Dto\StartPaymentResponseDto;
+use MarianDumitru\Netopay\Enums\PaymentStatus;
 
 class Netopay
 {
@@ -30,7 +31,7 @@ class Netopay
     {
         $posSignature = $this->posSignature();
         $orderDto = StartOrderDto::fromOrderData($orderData, $posSignature);
-        $configDto = new StartConfigDto;
+        $configDto = new StartConfigDto($orderData->redirectUrl);
         $paymentDto = StartPaymentDto::forHostedPage();
         $request = StartPaymentRequestDto::build($orderDto, $configDto, $paymentDto);
 
@@ -47,7 +48,7 @@ class Netopay
     {
         $posSignature = $this->posSignature();
         $orderDto = StartOrderDto::fromOrderData($orderData, $posSignature);
-        $configDto = new StartConfigDto;
+        $configDto = new StartConfigDto($orderData->redirectUrl);
         $paymentDto = StartPaymentDto::fromToken($token);
         $request = StartPaymentRequestDto::build($orderDto, $configDto, $paymentDto);
 
@@ -63,6 +64,15 @@ class Netopay
     public function retrieveStatus(PaymentStatusDto $status): PaymentStatusDto
     {
         return $this->client->retrieveStatus($status);
+    }
+
+    public function retrieveStatusById(string $ntpId, string $orderId): PaymentStatusDto
+    {
+        return $this->client->retrieveStatus(new PaymentStatusDto(
+            orderId: $orderId,
+            providerPaymentId: $ntpId,
+            state: PaymentStatus::Pending,
+        ));
     }
 
     /**

@@ -38,7 +38,7 @@ return [
     */
     'endpoints' => [
         'live' => [
-            'start' => env('NETOPIA _API_URL_LIVE', 'https://secure.mobilpay.ro/pay/payment/card/start'),
+            'start' => env('NETOPIA_API_URL_LIVE', 'https://secure.mobilpay.ro/pay/payment/card/start'),
             'status' => env('NETOPIA_STATUS_URL_LIVE', 'https://secure.mobilpay.ro/pay/operation/status'),
             'verify_auth' => env('NETOPIA_VERIFY_AUTH_URL_LIVE', 'https://secure.mobilpay.ro/pay/payment/card/verify-auth'),
         ],
