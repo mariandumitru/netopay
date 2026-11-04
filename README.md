@@ -130,7 +130,7 @@ Set `NETOPIA_SANDBOX=false` in production. The package automatically switches AP
 | `NETOPIA_POS_SIGNATURE_LIVE` | falls back to `NETOPIA_SALES_POINT_KEY` | Live POS signature. |
 | `NETOPIA_SALES_POINT_KEY` | — | Shared fallback used by *both* `NETOPIA_POS_SIGNATURE_SANDBOX` and `NETOPIA_POS_SIGNATURE_LIVE` when those are unset. Useful when migrating from older integrations, but be aware it applies the same value to both environments. |
 | `NETOPIA_NOTIFY_URL` | auto → `route('netopia.ipn')` | URL Netopia POSTs the IPN to. Optional when package routes are enabled. |
-| `NETOPIA_REDIRECT_URL` | auto → `route('netopia.return')` | URL Netopia redirects the user to after payment. Optional when package routes are enabled. |
+| `NETOPIA_REDIRECT_URL` | auto → `route('netopia.return')` | URL Netopia redirects the user to after payment. Optional when package routes are enabled. Override it for a single payment with `OrderDto::$redirectUrl`. |
 | `NETOPIA_AFTER_PAYMENT_REDIRECT` | `/` | Where the package's return controller redirects the user after firing `NetopiaReturnReceived`. |
 | `NETOPIA_CURRENCY` | `RON` | Fallback currency when Netopia's response omits one. |
 | `NETOPIA_LANGUAGE` | `ro` | Language of the hosted payment page Netopia shows the customer (`ro`, `en`, …). |
@@ -527,6 +527,32 @@ A custom return URL bypasses the package's return route, so `NetopiaReturnReceiv
 | `$errorMessage` | `?string` | Netopia error message |
 | `$raw` | `?string` | Full raw JSON response from Netopia |
 
+### `OrderDto` properties
+
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `$orderId` | `string` | — | Your unique order identifier, sent as `orderID` |
+| `$amount` | `float` | — | Amount to charge |
+| `$currency` | `string` | — | Currency code (e.g. `RON`) |
+| `$description` | `string` | — | Shown on the hosted page and in Netopia's admin |
+| `$billing` | `BillingDto` | — | Billing details (also sent as shipping) |
+| `$merchantInitiated` | `bool` | `false` | `true` for renewals the customer is not present for; adds `scaExemptionInd: MIT` |
+| `$redirectUrl` | `?string` | `null` | Return URL for this payment only; `null` uses `NETOPIA_REDIRECT_URL` |
+
+### `StartPaymentResponseDto` properties
+
+| Property | Type | Description |
+|---|---|---|
+| `$providerPaymentId` | `string` | Netopia's `ntpID` — store it, the status check and 3DS verify need it |
+| `$providerStatusCode` | `int` | Raw Netopia status code |
+| `$paymentUrl` | `?string` | Hosted page URL to redirect the customer to |
+| `$customerAction` | `?array` | 3DS action (`url`, `authenticationToken`) when required |
+| `$token` | `?string` | Card token, when the start response carries one |
+| `$authCode` | `?string` | Authorization code, when the payment is approved on start (token payments) |
+| `$rrn` | `?string` | Retrieval Reference Number, when approved on start |
+| `$rawResponse` | `string` | Full raw JSON response from Netopia |
+| `state()` | `PaymentStatus` | `$providerStatusCode` mapped to the enum. A hosted-page start returns status 1, which maps to `Failed` — wait for the IPN or the return before deciding the outcome |
+
 ---
 
 ## Facade API
@@ -652,7 +678,8 @@ Event::fake();
 // ... trigger the IPN endpoint
 
 Event::assertDispatched(NetopiaPaymentApproved::class, function ($event) {
-    return $event->status->orderId === 'your-order-id';
+    return $event->status->orderId === 'your-order-id'
+        && $event->ipnPayload['payment']['token'] === 'expected-card-token';
 });
 ```
 
