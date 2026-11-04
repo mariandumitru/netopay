@@ -67,8 +67,14 @@ class NetopiaWebhookController extends Controller
     {
         match ($status->state) {
             PaymentStatus::Paid, PaymentStatus::Confirmed => NetopiaPaymentApproved::dispatch($status, $ipnPayload),
-            PaymentStatus::Awaiting3DS => NetopiaPaymentPending::dispatch($status, $ipnPayload),
-            default => NetopiaPaymentFailed::dispatch($status, $ipnPayload),
+            PaymentStatus::Pending, PaymentStatus::Awaiting3DS => NetopiaPaymentPending::dispatch($status, $ipnPayload),
+            PaymentStatus::Failed => NetopiaPaymentFailed::dispatch($status, $ipnPayload),
+            PaymentStatus::Unknown => Log::warning('Netopia IPN has an unknown payment status, no event fired', [
+                'order_id' => $status->orderId,
+                'ntp_id' => $status->providerPaymentId,
+                'provider_status_code' => $status->providerStatusCode,
+                'payload' => $ipnPayload,
+            ]),
         };
     }
 }

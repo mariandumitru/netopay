@@ -110,12 +110,12 @@ it('maps the start status code to a payment status', function (int $code, Paymen
     'confirmed' => [5, PaymentStatus::Confirmed],
     'awaiting 3DS' => [15, PaymentStatus::Awaiting3DS],
     'declined' => [12, PaymentStatus::Failed],
-    'hosted page new' => [1, PaymentStatus::Failed],
+    'hosted page new' => [1, PaymentStatus::Pending],
 ]);
 
-it('maps a missing status to failed', function () {
+it('maps a missing status to unknown', function () {
     $dto = StartPaymentResponseDto::fromNetopiaStart(['payment' => ['ntpID' => '1']]);
 
     expect($dto->providerStatusCode)->toBe(0)
-        ->and($dto->state())->toBe(PaymentStatus::Failed);
+        ->and($dto->state())->toBe(PaymentStatus::Unknown);
 });

@@ -86,19 +86,88 @@ it('fires NetopiaPaymentFailed when IPN status is failed', function () {
         '*/operation/status' => Http::response([
             'error' => ['code' => '20', 'message' => 'Insufficient funds'],
             'order' => ['orderID' => 'order-fail'],
-            'payment' => ['ntpID' => '000', 'status' => 0, 'amount' => 10.0, 'currency' => 'RON'],
+            'payment' => ['ntpID' => '000', 'status' => 12, 'amount' => 10.0, 'currency' => 'RON'],
             'status' => PaymentStatus::Failed,
         ], 200),
     ]);
 
     $this->postJson('/netopia/ipn', [
         'order' => ['orderID' => 'order-fail'],
-        'payment' => ['ntpID' => '000', 'status' => 0],
+        'payment' => ['ntpID' => '000', 'status' => 12],
         'error' => ['code' => '20', 'message' => 'Insufficient funds'],
     ])->assertNoContent();
 
     Event::assertDispatched(NetopiaPaymentFailed::class);
 });
+
+it('fires the event that matches each status category', function (int $code, string $expected) {
+    Event::fake();
+
+    Http::fake([
+        '*/operation/status' => Http::response([
+            'order' => ['orderID' => 'order-category'],
+            'payment' => ['ntpID' => '500', 'status' => $code],
+        ], 200),
+    ]);
+
+    $this->postJson('/netopia/ipn', [
+        'order' => ['orderID' => 'order-category'],
+        'payment' => ['ntpID' => '500', 'status' => $code],
+    ])->assertNoContent();
+
+    $events = [NetopiaPaymentApproved::class, NetopiaPaymentPending::class, NetopiaPaymentFailed::class];
+
+    Event::assertDispatched($expected, fn ($e) => $e->status->providerStatusCode === $code);
+
+    foreach (array_diff($events, [$expected]) as $other) {
+        Event::assertNotDispatched($other);
+    }
+})->with([
+    'new' => [1, NetopiaPaymentPending::class],
+    'opened' => [2, NetopiaPaymentPending::class],
+    'paid' => [3, NetopiaPaymentApproved::class],
+    'confirmed' => [5, NetopiaPaymentApproved::class],
+    'pending' => [6, NetopiaPaymentPending::class],
+    'error' => [11, NetopiaPaymentFailed::class],
+    'invalid account' => [12, NetopiaPaymentFailed::class],
+    'fraud' => [13, NetopiaPaymentFailed::class],
+    'pending auth' => [14, NetopiaPaymentPending::class],
+    'awaiting 3DS' => [15, NetopiaPaymentPending::class],
+    'pending any' => [18, NetopiaPaymentPending::class],
+]);
+
+it('fires no payment event and logs a warning for an unknown status', function (array $payment) {
+    Event::fake();
+    Log::spy();
+
+    Http::fake([
+        '*/operation/status' => Http::response([
+            'order' => ['orderID' => 'order-unknown'],
+            'payment' => $payment,
+        ], 200),
+    ]);
+
+    $this->postJson('/netopia/ipn', [
+        'order' => ['orderID' => 'order-unknown'],
+        'payment' => $payment,
+    ])->assertNoContent();
+
+    Event::assertNotDispatched(NetopiaPaymentApproved::class);
+    Event::assertNotDispatched(NetopiaPaymentPending::class);
+    Event::assertNotDispatched(NetopiaPaymentFailed::class);
+    Event::assertNotDispatched(NetopiaIpnProcessingFailed::class);
+
+    Log::shouldHaveReceived('warning')
+        ->once()
+        ->withArgs(fn ($message, $context) => str_contains((string) $message, 'unknown payment status') &&
+            $context['order_id'] === 'order-unknown' &&
+            $context['provider_status_code'] === ($payment['status'] ?? null)
+        );
+})->with([
+    'unrecognised code' => [['ntpID' => '600', 'status' => 99]],
+    'status 0' => [['ntpID' => '601', 'status' => 0]],
+    'missing payment.status' => [['ntpID' => '602']],
+]);
 
 it('returns 204 even when retrieveStatus fails', function () {
     Event::fake();

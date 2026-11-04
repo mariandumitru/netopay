@@ -149,3 +149,60 @@ it('calls the verify-auth endpoint with the correct payload', function () {
         $req->data()['ntpID'] === '555'
     );
 });
+
+// ── non-final and missing statuses ───────────────────────────────────────────
+
+it('maps a pending code from the status check to Pending', function (int $code) {
+    Http::fake([
+        '*/operation/status' => Http::response([
+            'error' => ['code' => '00', 'message' => ''],
+            'order' => ['orderID' => 'order-pending'],
+            'payment' => ['ntpID' => '42', 'status' => $code],
+        ], 200),
+    ]);
+
+    $dto = makeClient()->retrieveStatus(new PaymentStatusDto('order-pending', '42', PaymentStatus::Pending));
+
+    expect($dto->state)->toBe(PaymentStatus::Pending)
+        ->and($dto->providerStatusCode)->toBe($code);
+})->with([1, 2, 6, 14, 18]);
+
+it('maps a status check without payment.status to Unknown', function () {
+    Http::fake([
+        '*/operation/status' => Http::response([
+            'order' => ['orderID' => 'order-missing'],
+            'payment' => ['ntpID' => '43'],
+        ], 200),
+    ]);
+
+    $dto = makeClient()->retrieveStatus(new PaymentStatusDto('order-missing', '43', PaymentStatus::Pending));
+
+    expect($dto->state)->toBe(PaymentStatus::Unknown)
+        ->and($dto->providerStatusCode)->toBeNull();
+});
+
+it('maps a pending code from verify-auth to Pending', function () {
+    Http::fake([
+        '*/payment/card/verify-auth' => Http::response([
+            'error' => ['code' => '00', 'message' => ''],
+            'payment' => ['ntpID' => '44', 'status' => 14],
+        ], 200),
+    ]);
+
+    $dto = makeClient()->verifyAuth('order-verify', 'auth-token', '44', []);
+
+    expect($dto->state)->toBe(PaymentStatus::Pending)
+        ->and($dto->providerStatusCode)->toBe(14)
+        ->and($dto->orderId)->toBe('order-verify');
+});
+
+it('maps an IPN without payment.status to Unknown', function () {
+    Http::fake();
+
+    $dto = makeClient()->handleIpn(new IpnPayloadDto(['order' => ['orderID' => 'ipn-x'], 'payment' => ['ntpID' => '45']], []));
+
+    expect($dto->state)->toBe(PaymentStatus::Unknown)
+        ->and($dto->providerStatusCode)->toBeNull();
+
+    Http::assertNothingSent();
+});

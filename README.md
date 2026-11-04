@@ -349,6 +349,7 @@ Fired when the user is redirected back to your application after completing (or 
 `$event->formData` is the raw POST/query payload Netopia sent on return (everything except `orderId`) as an `array<string, mixed>`. For 3DS flows, pass it straight through to `Netopay::verifyAuth()`.
 
 ```php
+use MarianDumitru\Netopay\Enums\PaymentStatus;
 use MarianDumitru\Netopay\Events\NetopiaReturnReceived;
 use MarianDumitru\Netopay\Facades\Netopay;
 
@@ -384,6 +385,13 @@ class HandleNetopiaReturn
                 $payment->provider_payment_id,
                 $event->orderId,
             );
+        }
+
+        // The customer often returns before Netopia has finished the payment,
+        // so the state can still be Pending. Unknown means Netopia sent a code
+        // the package doesn't recognise: don't overwrite the payment with it.
+        if ($result->state === PaymentStatus::Unknown) {
+            return;
         }
 
         $payment->update(['status' => $result->state->value]);
@@ -428,7 +436,8 @@ if (in_array($response->state(), [PaymentStatus::Paid, PaymentStatus::Confirmed]
 ```php
 $status = Netopay::retrieveStatusById($ntpId, $orderId);
 
-echo $status->state->value;    // 'paid', 'confirmed', 'failed', etc.
+echo $status->state->value;    // 'paid', 'confirmed', 'pending', 'awaiting_3ds', 'failed' or 'unknown'
+echo $status->providerStatusCode; // raw Netopia code, e.g. 3
 echo $status->authCode;
 echo $status->rrn;
 echo $status->paymentToken;
@@ -500,9 +509,9 @@ A custom return URL bypasses the package's return route, so `NetopiaReturnReceiv
 |---|---|---|---|
 | `NetopiaPaymentApproved` | `$status` | `PaymentStatusDto` | Payment is `Paid` (3) or `Confirmed` (5) |
 | | `$ipnPayload` | `array` | Raw IPN body (card token, binding, instrument) |
-| `NetopiaPaymentPending` | `$status` | `PaymentStatusDto` | Payment is awaiting 3DS (status 15) |
+| `NetopiaPaymentPending` | `$status` | `PaymentStatusDto` | Payment is still in progress: `Pending` or `Awaiting3DS` (check `$status->state`) |
 | | `$ipnPayload` | `array` | Raw IPN body |
-| `NetopiaPaymentFailed` | `$status` | `PaymentStatusDto` | Payment failed or was declined |
+| `NetopiaPaymentFailed` | `$status` | `PaymentStatusDto` | Payment is `Failed`: error, declined / invalid account, or fraud |
 | | `$ipnPayload` | `array` | Raw IPN body |
 | `NetopiaIpnProcessingFailed` | `$exception` | `Throwable` | Exception thrown while handling the IPN |
 | | `$payload` | `array` | Raw IPN body received from Netopia |
@@ -511,13 +520,31 @@ A custom return URL bypasses the package's return route, so `NetopiaReturnReceiv
 | | `$formData` | `array<string, mixed>` | POST/query data Netopia sent (everything except `orderId`). Pass straight to `Netopay::verifyAuth()` for 3DS flows |
 | | `$headers` | `array` | Request headers |
 
+An IPN whose status is `Unknown` fires none of the three payment events. The package logs a warning (`Netopia IPN has an unknown payment status`) with the raw code instead, so an unrecognised code never marks an order as failed.
+
+### Payment statuses
+
+`PaymentStatus::getStatus()` maps Netopia's numeric code to the enum. NETOPIA's v2 docs list only 3, 5, 12 and 15. The other codes aren't officially documented: 1 is what a hosted-page start returns, and the rest match what other NETOPIA integrations use.
+
+| `PaymentStatus` | Netopia codes | IPN event |
+|---|---|---|
+| `Paid` | 3 | `NetopiaPaymentApproved` |
+| `Confirmed` | 5 | `NetopiaPaymentApproved` |
+| `Pending` | 1 new, 2 opened, 6 pending, 14 pending auth, 18 pending | `NetopiaPaymentPending` |
+| `Awaiting3DS` | 15 | `NetopiaPaymentPending` |
+| `Failed` | 11 error, 12 invalid account / declined, 13 fraud | `NetopiaPaymentFailed` |
+| `Unknown` | anything else, including a missing status | none (warning logged) |
+
+Codes for cancellations, refunds and chargebacks aren't documented by NETOPIA, so they come through as `Unknown`. Read `$status->providerStatusCode` if your app needs to handle one of them.
+
 ### `PaymentStatusDto` properties
 
 | Property | Type | Description |
 |---|---|---|
 | `$orderId` | `string` | Your order ID |
 | `$providerPaymentId` | `string` | Netopia's `ntpID` |
-| `$state` | `PaymentStatus` | Enum: `Paid`, `Confirmed`, `Failed`, `Awaiting3DS`, `Pending` |
+| `$state` | `PaymentStatus` | Enum: `Paid`, `Confirmed`, `Pending`, `Awaiting3DS`, `Failed`, `Unknown` — see [Payment statuses](#payment-statuses) |
+| `$providerStatusCode` | `?int` | Raw Netopia status code; `null` when the response has none |
 | `$authCode` | `?string` | Authorization code (available after verify-auth) |
 | `$rrn` | `?string` | Retrieval Reference Number |
 | `$amount` | `?float` | Amount charged |
@@ -551,7 +578,7 @@ A custom return URL bypasses the package's return route, so `NetopiaReturnReceiv
 | `$authCode` | `?string` | Authorization code, when the payment is approved on start (token payments) |
 | `$rrn` | `?string` | Retrieval Reference Number, when approved on start |
 | `$rawResponse` | `string` | Full raw JSON response from Netopia |
-| `state()` | `PaymentStatus` | `$providerStatusCode` mapped to the enum. A hosted-page start returns status 1, which maps to `Failed` — wait for the IPN or the return before deciding the outcome |
+| `state()` | `PaymentStatus` | `$providerStatusCode` mapped to the enum. A hosted-page start returns status 1, which maps to `Pending` — wait for the IPN or the return before deciding the outcome |
 
 ---
 
