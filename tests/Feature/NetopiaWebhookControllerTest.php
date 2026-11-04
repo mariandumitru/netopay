@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use MarianDumitru\Netopay\Dto\PaymentStatusDto;
 use MarianDumitru\Netopay\Enums\PaymentStatus;
 use MarianDumitru\Netopay\Events\NetopiaIpnProcessingFailed;
 use MarianDumitru\Netopay\Events\NetopiaPaymentApproved;
@@ -172,4 +173,126 @@ it('fires NetopiaIpnProcessingFailed when retrieveStatus throws', function () {
     Event::assertDispatched(NetopiaIpnProcessingFailed::class, fn ($e) => $e->payload['order']['orderID'] === 'order-broken' &&
         $e->exception !== null
     );
+});
+
+// ── IPN payload on events ────────────────────────────────────────────────────
+
+it('passes the raw IPN body with the card token to NetopiaPaymentApproved', function () {
+    Event::fake();
+
+    Http::fake([
+        '*/operation/status' => Http::response([
+            'error' => ['code' => '00', 'message' => 'Approved'],
+            'order' => ['orderID' => 'order-card'],
+            'payment' => [
+                'ntpID' => '2739571',
+                'status' => 3,
+                'amount' => 22.94,
+                'currency' => 'RON',
+                'binding' => ['expireMonth' => 0, 'expireYear' => 0],
+                'rrn' => 'RRN0292',
+            ],
+        ], 200),
+    ]);
+
+    $ipnBody = [
+        'order' => ['orderID' => 'order-card'],
+        'payment' => [
+            'ntpID' => '2739571',
+            'status' => 3,
+            'amount' => 22.94,
+            'currency' => 'RON',
+            'token' => 'MTEwcard==',
+            'binding' => ['token' => 'MTEwcard==', 'expireMonth' => 5, 'expireYear' => 2035],
+            'instrument' => ['panMasked' => '9900****0000'],
+        ],
+        'error' => ['code' => '00', 'message' => 'Approved'],
+    ];
+
+    $this->postJson('/netopia/ipn', $ipnBody)->assertNoContent();
+
+    Event::assertDispatched(NetopiaPaymentApproved::class, fn ($e) => $e->ipnPayload === $ipnBody &&
+        $e->ipnPayload['payment']['token'] === 'MTEwcard==' &&
+        $e->ipnPayload['payment']['binding']['expireMonth'] === 5 &&
+        $e->ipnPayload['payment']['instrument']['panMasked'] === '9900****0000' &&
+        $e->status->paymentToken === null &&
+        $e->status->rrn === 'RRN0292'
+    );
+});
+
+it('passes the raw IPN body to NetopiaPaymentApproved for a one-off payment without a card token', function () {
+    Event::fake();
+
+    Http::fake([
+        '*/operation/status' => Http::response([
+            'error' => ['code' => '00', 'message' => 'Approved'],
+            'order' => ['orderID' => 'order-table-4'],
+            'payment' => ['ntpID' => '321', 'status' => 3, 'amount' => 45.5, 'currency' => 'RON'],
+        ], 200),
+    ]);
+
+    $ipnBody = [
+        'order' => ['orderID' => 'order-table-4'],
+        'payment' => ['ntpID' => '321', 'status' => 3, 'amount' => 45.5, 'currency' => 'RON'],
+        'error' => ['code' => '00', 'message' => 'Approved'],
+    ];
+
+    $this->postJson('/netopia/ipn', $ipnBody)->assertNoContent();
+
+    Event::assertDispatched(NetopiaPaymentApproved::class, fn ($e) => $e->ipnPayload === $ipnBody &&
+        ! isset($e->ipnPayload['payment']['token']) &&
+        $e->status->state === PaymentStatus::Paid
+    );
+});
+
+it('passes the raw IPN body to NetopiaPaymentPending', function () {
+    Event::fake();
+
+    Http::fake([
+        '*/operation/status' => Http::response([
+            'error' => ['code' => '102', 'message' => '3DS required'],
+            'order' => ['orderID' => 'order-3ds-payload'],
+            'payment' => ['ntpID' => '789', 'status' => 15],
+        ], 200),
+    ]);
+
+    $ipnBody = [
+        'order' => ['orderID' => 'order-3ds-payload'],
+        'payment' => ['ntpID' => '789', 'status' => 15],
+        'error' => ['code' => '102', 'message' => '3DS required'],
+    ];
+
+    $this->postJson('/netopia/ipn', $ipnBody)->assertNoContent();
+
+    Event::assertDispatched(NetopiaPaymentPending::class, fn ($e) => $e->ipnPayload === $ipnBody);
+});
+
+it('passes the raw IPN body to NetopiaPaymentFailed', function () {
+    Event::fake();
+
+    Http::fake([
+        '*/operation/status' => Http::response([
+            'error' => ['code' => '20', 'message' => 'Insufficient funds'],
+            'order' => ['orderID' => 'order-fail-payload'],
+            'payment' => ['ntpID' => '000', 'status' => 12],
+        ], 200),
+    ]);
+
+    $ipnBody = [
+        'order' => ['orderID' => 'order-fail-payload'],
+        'payment' => ['ntpID' => '000', 'status' => 12],
+        'error' => ['code' => '20', 'message' => 'Insufficient funds'],
+    ];
+
+    $this->postJson('/netopia/ipn', $ipnBody)->assertNoContent();
+
+    Event::assertDispatched(NetopiaPaymentFailed::class, fn ($e) => $e->ipnPayload === $ipnBody);
+});
+
+it('defaults the IPN payload to an empty array when an event is built without one', function () {
+    $status = new PaymentStatusDto('order-x', '1', PaymentStatus::Paid);
+
+    expect((new NetopiaPaymentApproved($status))->ipnPayload)->toBe([])
+        ->and((new NetopiaPaymentPending($status))->ipnPayload)->toBe([])
+        ->and((new NetopiaPaymentFailed($status))->ipnPayload)->toBe([]);
 });

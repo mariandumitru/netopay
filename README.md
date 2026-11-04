@@ -270,6 +270,8 @@ public function boot(): void
 
 Fired by the IPN controller when Netopia confirms a `Paid` or `Confirmed` status. This is where you fulfil the order.
 
+`$event->status` comes from Netopia's status check, which does not return the saved card. The card token, masked PAN and expiry are in the IPN body, available as `$event->ipnPayload`. Skip the token for one-off payments where you don't keep cards.
+
 > **Double-fulfilment guard.** The IPN webhook and the user-facing return redirect can both arrive within a few seconds of each other and may both run your fulfilment logic. Wrap the lookup in a transaction with `lockForUpdate()` and check the status before acting, so only one of the two paths fulfils.
 
 ```php
@@ -282,7 +284,7 @@ class HandlePaymentApproved
     {
         $status = $event->status; // PaymentStatusDto
 
-        DB::transaction(function () use ($status) {
+        DB::transaction(function () use ($status, $event) {
             $payment = Payment::where('uuid', $status->orderId)
                 ->lockForUpdate()
                 ->first();
@@ -299,10 +301,17 @@ class HandlePaymentApproved
                 'paid_at'             => now(),
             ]);
 
-            if ($status->paymentToken) {
+            $token = $event->ipnPayload['payment']['token'] ?? null;
+
+            if ($token) {
                 PaymentToken::updateOrCreate(
                     ['user_id' => $payment->user_id],
-                    ['token'   => $status->paymentToken],
+                    [
+                        'token'        => $token,
+                        'pan_masked'   => $event->ipnPayload['payment']['instrument']['panMasked'] ?? null,
+                        'expire_month' => $event->ipnPayload['payment']['binding']['expireMonth'] ?? null,
+                        'expire_year'  => $event->ipnPayload['payment']['binding']['expireYear'] ?? null,
+                    ],
                 );
             }
 
@@ -371,7 +380,7 @@ class HandleNetopiaReturn
             );
         } else {
             // Hosted-page flow: retrieve confirmed status
-            $result = Netopay::retrieveStatus(
+            $result = Netopay::retrieveStatusById(
                 $payment->provider_payment_id,
                 $event->orderId,
             );
@@ -386,20 +395,38 @@ class HandleNetopiaReturn
 
 ### 3. Recurring payments with a saved card token
 
-Once a user has paid and you have saved their card token, use `startWithToken()` for merchant-initiated renewals. No redirect is needed — the payment is processed immediately.
+Once a user has paid and you have saved their card token, use `startWithToken()`. For renewals the customer is not present for, set `merchantInitiated: true` on the `OrderDto` so the request carries `scaExemptionInd: MIT`. For a customer-present payment with a saved card (e.g. a returning restaurant customer), leave it `false`.
+
+The card may be charged straight away, or Netopia may ask for 3DS (status 15) and return a `customerAction` / `paymentUrl` to send the customer to.
 
 ```php
+use MarianDumitru\Netopay\Enums\PaymentStatus;
+
+$orderData = new OrderDto(
+    orderId:           $payment->uuid,
+    amount:            149.99,
+    currency:          'RON',
+    description:       'Renewal — Subscription #42',
+    billing:           $billing,
+    merchantInitiated: true,
+);
+
 $response = Netopay::startWithToken($orderData, $savedToken);
 
-if ($response->providerStatusCode === 3 || $response->providerStatusCode === 5) {
-    // Payment approved — fulfil the order
+if (in_array($response->state(), [PaymentStatus::Paid, PaymentStatus::Confirmed], true)) {
+    $payment->update([
+        'status'    => $response->state()->value,
+        'auth_code' => $response->authCode,
+        'rrn'       => $response->rrn,
+        'paid_at'   => now(),
+    ]);
 }
 ```
 
 ### 4. Retrieving payment status manually
 
 ```php
-$status = Netopay::retrieveStatus($ntpId, $orderId);
+$status = Netopay::retrieveStatusById($ntpId, $orderId);
 
 echo $status->state->value;    // 'paid', 'confirmed', 'failed', etc.
 echo $status->authCode;
@@ -448,6 +475,23 @@ public function handle(NetopiaReturnReceived $event): void
 
 Set `NETOPIA_AFTER_PAYMENT_REDIRECT=/payments/landing` in `.env` and every payment lands the user on the right page.
 
+### 6. A different return URL per payment
+
+Pass `redirectUrl` on the `OrderDto` to send Netopia's return redirect somewhere other than `NETOPIA_REDIRECT_URL` for that payment only — for example a mobile WebView return route that your app handles itself:
+
+```php
+$orderData = new OrderDto(
+    orderId:     $payment->uuid,
+    amount:      149.99,
+    currency:    'RON',
+    description: 'Order #123',
+    billing:     $billing,
+    redirectUrl: route('payments.mobile-return'),
+);
+```
+
+A custom return URL bypasses the package's return route, so `NetopiaReturnReceived` is not fired for that payment — your route handles the return (call `verifyAuth()` / `retrieveStatusById()` there). The IPN still goes to `NETOPIA_NOTIFY_URL` and fires the usual events.
+
 ---
 
 ## Events Reference
@@ -455,8 +499,11 @@ Set `NETOPIA_AFTER_PAYMENT_REDIRECT=/payments/landing` in `.env` and every payme
 | Event | Property | Type | Description |
 |---|---|---|---|
 | `NetopiaPaymentApproved` | `$status` | `PaymentStatusDto` | Payment is `Paid` (3) or `Confirmed` (5) |
+| | `$ipnPayload` | `array` | Raw IPN body (card token, binding, instrument) |
 | `NetopiaPaymentPending` | `$status` | `PaymentStatusDto` | Payment is awaiting 3DS (status 15) |
+| | `$ipnPayload` | `array` | Raw IPN body |
 | `NetopiaPaymentFailed` | `$status` | `PaymentStatusDto` | Payment failed or was declined |
+| | `$ipnPayload` | `array` | Raw IPN body |
 | `NetopiaIpnProcessingFailed` | `$exception` | `Throwable` | Exception thrown while handling the IPN |
 | | `$payload` | `array` | Raw IPN body received from Netopia |
 | | `$headers` | `array` | Raw IPN headers |
@@ -475,7 +522,7 @@ Set `NETOPIA_AFTER_PAYMENT_REDIRECT=/payments/landing` in `.env` and every payme
 | `$rrn` | `?string` | Retrieval Reference Number |
 | `$amount` | `?float` | Amount charged |
 | `$currency` | `?string` | Currency code |
-| `$paymentToken` | `?string` | Saved card token for future recurring payments |
+| `$paymentToken` | `?string` | Saved card token, when the response carries one (verify-auth). On the IPN path read it from the event's `$ipnPayload` |
 | `$errorCode` | `?string` | Netopia error code |
 | `$errorMessage` | `?string` | Netopia error message |
 | `$raw` | `?string` | Full raw JSON response from Netopia |
@@ -494,7 +541,8 @@ Netopay::start(OrderDto $orderData): StartPaymentResponseDto
 Netopay::startWithToken(OrderDto $orderData, string $token): StartPaymentResponseDto
 
 // Retrieve confirmed status from Netopia
-Netopay::retrieveStatus(string $ntpId, string $orderId): PaymentStatusDto
+Netopay::retrieveStatusById(string $ntpId, string $orderId): PaymentStatusDto
+Netopay::retrieveStatus(PaymentStatusDto $status): PaymentStatusDto
 
 // Complete a 3DS authentication
 Netopay::verifyAuth(string $orderId, string $authToken, string $ntpId, array $formData): PaymentStatusDto
@@ -552,7 +600,7 @@ A quick sandbox smoke test:
 4. **Inspect** the `storage/logs/laravel.log` file — you should see the `start payment` request/response, then the IPN payload, then your "approved" log line.
 5. **Re-fetch status manually** via `php artisan tinker`:
    ```php
-   \MarianDumitru\Netopay\Facades\Netopay::retrieveStatus('<ntpID>', '<orderId>');
+   \MarianDumitru\Netopay\Facades\Netopay::retrieveStatusById('<ntpID>', '<orderId>');
    ```
    using the IDs from step 4 to confirm round-trip works.
 

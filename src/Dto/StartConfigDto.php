@@ -14,10 +14,10 @@ class StartConfigDto
 
     public string $emailTemplate;
 
-    public function __construct()
+    public function __construct(?string $redirectUrl = null)
     {
         $this->notifyUrl = config('netopay.notify_url') ?: route('netopia.ipn');
-        $this->redirectUrl = config('netopay.redirect_url') ?: route('netopia.return');
+        $this->redirectUrl = $redirectUrl ?: (config('netopay.redirect_url') ?: route('netopia.return'));
         $this->language = config('netopay.language', 'ro');
         $this->emailTemplate = config('netopay.email_template', 'confirm');
     }
