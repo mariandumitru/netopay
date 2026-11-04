@@ -83,9 +83,9 @@ it('calls the status endpoint with ntpID and orderID', function () {
 
     $initialStatus = PaymentStatusDto::fromIpnPayload(
         [
-            "order" => ["orderID" => "order-1", "currency" => "RON"],
-            "payment" => ["ntpID" => "2747182"],
-            "status" => PaymentStatus::Paid,
+            'order' => ['orderID' => 'order-1', 'currency' => 'RON'],
+            'payment' => ['ntpID' => '2747182'],
+            'status' => PaymentStatus::Paid,
         ]
     );
     $dto = makeClient()->retrieveStatus($initialStatus);
