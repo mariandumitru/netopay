@@ -64,10 +64,10 @@ That's the whole picture. The rest of this README expands on each step (building
 
 ## Requirements
 
-- PHP 8.2+
-- Laravel 11, 12, or 13
+- PHP 8.5+
+- Laravel 12.69+ or 13.30+
 
-> The package is verified against Laravel 13 in CI. Laravel 11 and 12 are supported based on code audit (no L13-specific APIs are used); if you hit an issue on those versions, please open an issue.
+> The test suite passes on PHP 8.5 against both Laravel 13 (Pest 5, Testbench 11) and Laravel 12 (Pest 4, Testbench 10). If you hit an issue, please open an issue.
 
 ---
 

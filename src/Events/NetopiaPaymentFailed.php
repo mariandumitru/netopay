@@ -12,6 +12,5 @@ class NetopiaPaymentFailed
 {
     use Dispatchable, SerializesModels;
 
-    public function __construct(public readonly PaymentStatusDto $status)
-    {}
+    public function __construct(public readonly PaymentStatusDto $status) {}
 }

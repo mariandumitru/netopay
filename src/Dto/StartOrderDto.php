@@ -7,17 +7,17 @@ namespace MarianDumitru\Netopay\Dto;
 class StartOrderDto
 {
     public function __construct(
-        public string     $posSignature,
-        public string     $orderId,
-        public string     $description,
-        public float      $amountMinor,
-        public string     $currency,
+        public string $posSignature,
+        public string $orderId,
+        public string $description,
+        public float $amountMinor,
+        public string $currency,
         public BillingDto $billing,
-        public array      $products = [],
-        public array      $installments = [],
-        public ?string    $dateTimeIso = null,
-        public array      $customData = [],
-        public bool       $isMerchantInitiated = false,
+        public array $products = [],
+        public array $installments = [],
+        public ?string $dateTimeIso = null,
+        public array $customData = [],
+        public bool $isMerchantInitiated = false,
     ) {}
 
     public static function fromOrderData(OrderDto $data, string $posSignature): self
