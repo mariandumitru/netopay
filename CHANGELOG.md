@@ -2,6 +2,14 @@
 
 All notable changes to `netopay` will be documented in this file.
 
+## Bug fixes - 2026-11-04
+
+### What's Changed
+
+* bugs fixing by @mariandumitru in https://github.com/mariandumitru/netopay/pull/10
+
+**Full Changelog**: https://github.com/mariandumitru/netopay/compare/1.0.2...1.0.3
+
 ## 1.0.2 - 2026-11-04
 
 Fixed the changelog workflow failing when a release has no title.
