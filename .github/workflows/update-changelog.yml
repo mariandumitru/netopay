@@ -22,7 +22,7 @@ jobs:
         uses: stefanzweifel/changelog-updater-action@v1
         with:
           latest-version: ${{ github.event.release.name || github.event.release.tag_name }}
-          release-notes: ${{ github.event.release.body }}
+          release-notes: ${{ github.event.release.body || 'Maintenance release.' }}
 
       - name: Commit updated CHANGELOG
         uses: stefanzweifel/git-auto-commit-action@v7
