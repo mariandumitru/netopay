@@ -118,3 +118,37 @@ it('falls back to config currency when not present in response', function () {
 
     expect($dto->currency)->toBe('RON'); // from config in TestCase
 });
+
+// ── providerStatusCode ───────────────────────────────────────────────────────
+
+it('keeps the raw netopia status code from every factory', function (string $factory) {
+    $data = [
+        'order' => ['orderID' => 'order-code'],
+        'payment' => ['ntpID' => '1', 'status' => 6],
+        'status' => PaymentStatus::Pending,
+    ];
+
+    $dto = PaymentStatusDto::$factory($data);
+
+    expect($dto->providerStatusCode)->toBe(6)
+        ->and($dto->toArray()['providerStatusCode'])->toBe(6);
+})->with(['fromIpnPayload', 'fromNetopiaStatus', 'fromNetopiaVerifyAuth']);
+
+it('reads a numeric-string status code as an int', function () {
+    $dto = PaymentStatusDto::fromIpnPayload([
+        'payment' => ['ntpID' => '1', 'status' => '3'],
+        'status' => PaymentStatus::Paid,
+    ]);
+
+    expect($dto->providerStatusCode)->toBe(3);
+});
+
+it('leaves the raw status code null when the response has none', function () {
+    $dto = PaymentStatusDto::fromNetopiaStatus([
+        'payment' => ['ntpID' => '1'],
+        'status' => PaymentStatus::Unknown,
+    ]);
+
+    expect($dto->providerStatusCode)->toBeNull()
+        ->and($dto->toArray()['providerStatusCode'])->toBeNull();
+});

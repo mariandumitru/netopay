@@ -20,6 +20,7 @@ readonly class PaymentStatusDto
         public ?string $currency = null,
         public ?string $paymentToken = null,
         public ?string $raw = null,
+        public ?int $providerStatusCode = null,
     ) {}
 
     public static function fromIpnPayload(array $payload): self
@@ -35,6 +36,7 @@ readonly class PaymentStatusDto
             amount: isset($payload['payment']['amount']) ? (float) $payload['payment']['amount'] : null,
             currency: $payload['payment']['currency'] ?? $payload['order']['currency'] ?? config('netopay.currency', 'RON'),
             raw: json_encode($payload),
+            providerStatusCode: self::statusCode($payload),
         );
     }
 
@@ -52,6 +54,7 @@ readonly class PaymentStatusDto
             currency: $data['payment']['currency'] ?? $data['order']['currency'] ?? config('netopay.currency', 'RON'),
             paymentToken: $data['payment']['token'] ?? null,
             raw: json_encode($data),
+            providerStatusCode: self::statusCode($data),
         );
     }
 
@@ -69,6 +72,7 @@ readonly class PaymentStatusDto
             currency: $data['payment']['currency'] ?? $data['order']['currency'] ?? config('netopay.currency', 'RON'),
             paymentToken: $data['payment']['token'] ?? null,
             raw: json_encode($data),
+            providerStatusCode: self::statusCode($data),
         );
     }
 
@@ -86,6 +90,17 @@ readonly class PaymentStatusDto
             'currency' => $this->currency,
             'paymentToken' => $this->paymentToken,
             'raw' => $this->raw,
+            'providerStatusCode' => $this->providerStatusCode,
         ];
+    }
+
+    /**
+     * The raw Netopia status code, or null when the response has none.
+     */
+    private static function statusCode(array $data): ?int
+    {
+        $code = $data['payment']['status'] ?? null;
+
+        return is_numeric($code) ? (int) $code : null;
     }
 }
